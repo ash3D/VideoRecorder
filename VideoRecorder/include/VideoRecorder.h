@@ -9,6 +9,7 @@
 #include <functional>
 #include <fstream>
 #include <chrono>
+#include <thread>
 #include <cstdint>
 
 class CVideoRecorder
@@ -23,7 +24,7 @@ class CVideoRecorder
 
 	std::unique_ptr<struct SwsContext, void (*const)(struct SwsContext *swsContext)> cvtCtx;
 
-	std::vector<std::array<uint8_t, 4>> srcPixels;
+	std::queue<std::vector<std::array<uint8_t, 4>>> frameQueue;
 
 	const std::unique_ptr<struct AVPacket> packet;
 
@@ -40,15 +41,18 @@ class CVideoRecorder
 
 	std::queue<std::wstring> screenshotPaths;
 
+	std::thread worker;
+
 private:
-	void UpdatePixelData(unsigned int width, unsigned int height, const std::function<void(decltype(srcPixels)::pointer)> &GetPixelsCallback);
+	void UpdatePixelData(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback);
+	void Process();
 
 public:
 	CVideoRecorder();
 	~CVideoRecorder();
 
 public:
-	void Draw(unsigned int width, unsigned int height, const std::function<void (decltype(srcPixels)::pointer)> &GetPixelsCallback);
+	void Draw(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback);
 	
 	void StartRecord(unsigned int width, unsigned int height, const wchar_t filename[]);
 	void StopRecord();

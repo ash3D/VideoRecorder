@@ -2,7 +2,6 @@
 #include <iostream>
 #include <exception>
 #include <new>
-#include <utility>
 #include <ratio>
 #include <cassert>
 extern "C"
@@ -39,20 +38,26 @@ void CVideoRecorder::TFrameDeleter::operator()(AVFrame *frame) const
 	av_frame_free(&frame);
 }
 
-void CVideoRecorder::UpdatePixelData(unsigned int width, unsigned int height, const std::function<void(decltype(srcPixels)::pointer)> &GetPixelsCallback)
+void CVideoRecorder::UpdatePixelData(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback)
 {
-	srcPixels.resize(width * height);
-	GetPixelsCallback(srcPixels.data());
+	frameQueue.resize(width * height);
+	GetPixelsCallback(frameQueue.data());
+}
+
+void CVideoRecorder::Process()
+{
 }
 
 CVideoRecorder::CVideoRecorder() try :
 	context(avcodec_alloc_context3(codec)),
 	cvtCtx(nullptr, sws_freeContext),
-	packet(std::make_unique<decltype(packet)::element_type>())
+	packet(std::make_unique<decltype(packet)::element_type>()),
+	worker(std::mem_fn(&CVideoRecorder::Process), this)
 {
 	assert(codec);
 	if (!context)
 		throw std::bad_alloc();
+
 }
 catch (const std::exception &error)
 {
@@ -67,11 +72,12 @@ CVideoRecorder::~CVideoRecorder()
 		wcerr << "Destroying video recorder without stopping current record session." << endl;
 		StopRecord();
 	}
+	worker.join();
 }
 
-void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::function<void(decltype(srcPixels)::pointer)> &GetPixelsCallback)
+void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::function<void(decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback)
 {
-	const int srcStride = width * sizeof(decltype(srcPixels)::value_type);
+	const int srcStride = width * sizeof(decltype(frameQueue)::value_type);
 
 	const bool takeScreenshot = !screenshotPaths.empty();
 	if (takeScreenshot)
@@ -83,7 +89,7 @@ void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::fu
 
 			using namespace DirectX;
 			const auto result = SaveToWICFile(
-				{ width, height, DXGI_FORMAT_B8G8R8A8_UNORM, srcStride, srcStride * height, reinterpret_cast<uint8_t *>(srcPixels.data()) },
+				{ width, height, DXGI_FORMAT_B8G8R8A8_UNORM, srcStride, srcStride * height, reinterpret_cast<uint8_t *>(frameQueue.data()) },
 				WIC_FLAGS_NONE, GetWICCodec(WIC_CODEC_JPEG), screenshotPaths.front().c_str());
 
 			AssertHR(result);
@@ -132,7 +138,7 @@ void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::fu
 				clean();
 				return;
 			}
-			const auto src = reinterpret_cast<const uint8_t *const>(srcPixels.data());
+			const auto src = reinterpret_cast<const uint8_t *const>(frameQueue.data());
 			sws_scale(cvtCtx.get(), &src, &srcStride, 0, height, frame->data, frame->linesize);
 
 			auto i = delta.count();
