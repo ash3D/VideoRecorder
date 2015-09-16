@@ -10,6 +10,7 @@
 #include <fstream>
 #include <chrono>
 #include <thread>
+#include <mutex>
 #include <cstdint>
 
 class CVideoRecorder
@@ -42,9 +43,12 @@ class CVideoRecorder
 	std::queue<std::wstring> screenshotPaths;
 
 	std::thread worker;
+	std::mutex mtx;
+
+	bool takeScreenshot = false;
 
 private:
-	void UpdatePixelData(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback);
+	void EnqueueFrame(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback);
 	void Process();
 
 public:
@@ -58,8 +62,13 @@ public:
 	void StopRecord();
 
 	template<typename String>
-	void Screenshot(String &&filename)
-	{
-		screenshotPaths.push(std::forward<String>(filename));
-	}
+	void Screenshot(String &&filename);
 };
+
+template<typename String>
+void CVideoRecorder::Screenshot(String &&filename)
+{
+	takeScreenshot = true;
+	std::lock_guard<decltype(mtx)> lck(mtx);
+	screenshotPaths.push(std::forward<String>(filename));
+}

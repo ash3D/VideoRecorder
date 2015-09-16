@@ -38,10 +38,12 @@ void CVideoRecorder::TFrameDeleter::operator()(AVFrame *frame) const
 	av_frame_free(&frame);
 }
 
-void CVideoRecorder::UpdatePixelData(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback)
+void CVideoRecorder::EnqueueFrame(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback)
 {
-	frameQueue.resize(width * height);
-	GetPixelsCallback(frameQueue.data());
+	decltype(frameQueue)::value_type frame(width * height);
+	GetPixelsCallback(frame.data());
+	std::lock_guard<decltype(mtx)> lck(mtx);
+	frameQueue.push(std::move(frame));
 }
 
 void CVideoRecorder::Process()
@@ -57,7 +59,6 @@ CVideoRecorder::CVideoRecorder() try :
 	assert(codec);
 	if (!context)
 		throw std::bad_alloc();
-
 }
 catch (const std::exception &error)
 {
@@ -79,7 +80,6 @@ void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::fu
 {
 	const int srcStride = width * sizeof(decltype(frameQueue)::value_type);
 
-	const bool takeScreenshot = !screenshotPaths.empty();
 	if (takeScreenshot)
 	{
 		UpdatePixelData(width, height, GetPixelsCallback);
@@ -172,6 +172,8 @@ void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::fu
 			nextFrame += duration_cast<clock::duration>(delta + duration<clock::rep, ratio<1, fps>>(1u));
 		}
 	}
+
+	takeScreenshot = false;
 }
 
 void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const wchar_t filename[])
