@@ -15,7 +15,7 @@
 
 class CVideoRecorder
 {
-	static struct AVCodec *const codec;
+	static const struct AVCodec *const codec;
 
 	struct TContextDeleter
 	{
@@ -24,8 +24,6 @@ class CVideoRecorder
 	const std::unique_ptr<struct AVCodecContext, TContextDeleter> context;
 
 	std::unique_ptr<struct SwsContext, void (*const)(struct SwsContext *swsContext)> cvtCtx;
-
-	std::queue<std::vector<std::array<uint8_t, 4>>> frameQueue;
 
 	const std::unique_ptr<struct AVPacket> packet;
 
@@ -42,13 +40,26 @@ class CVideoRecorder
 
 	std::queue<std::wstring> screenshotPaths;
 
+	struct TFrame
+	{
+		std::unique_ptr<std::array<uint8_t, 4> []> pixels;
+		unsigned int width, height;
+		decltype(screenshotPaths) screenshotPaths;
+		bool video;
+
+		// remove after transition to VS 2015 toolset which generates it automatically
+	public:
+		TFrame(TFrame &&) = default;
+		TFrame &operator =(TFrame &&) = default;
+	};
+	std::queue<TFrame> frameQueue;
+	typedef decltype(decltype(frameQueue)::value_type::pixels) TPixels;
+
 	std::thread worker;
 	std::mutex mtx;
 
-	bool takeScreenshot = false;
-
 private:
-	void EnqueueFrame(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback);
+	void EnqueueFrame(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback);
 	void Process();
 
 public:
@@ -56,19 +67,15 @@ public:
 	~CVideoRecorder();
 
 public:
-	void Draw(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback);
+	void Draw(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback);
 	
 	void StartRecord(unsigned int width, unsigned int height, const wchar_t filename[]);
 	void StopRecord();
 
+	void Screenshot(std::wstring &&filename);
 	template<typename String>
-	void Screenshot(String &&filename);
+	void Screenshot(String &&filename)
+	{
+		Screenshot(std::wstring(std::forward<String>(filename)));
+	}
 };
-
-template<typename String>
-void CVideoRecorder::Screenshot(String &&filename)
-{
-	takeScreenshot = true;
-	std::lock_guard<decltype(mtx)> lck(mtx);
-	screenshotPaths.push(std::forward<String>(filename));
-}

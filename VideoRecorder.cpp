@@ -24,7 +24,7 @@ static inline void AssertHR(HRESULT hr)
 static const/*expr*/ unsigned int cache_line = 64;
 static const/*expr*/ unsigned int fps = 25;
 
-AVCodec *const CVideoRecorder::codec = (avcodec_register_all(), avcodec_find_encoder(AV_CODEC_ID_MPEG1VIDEO));
+const AVCodec *const CVideoRecorder::codec = (avcodec_register_all(), avcodec_find_encoder(AV_CODEC_ID_MPEG1VIDEO));
 
 inline void CVideoRecorder::TContextDeleter::operator()(AVCodecContext *context) const
 {
@@ -38,16 +38,59 @@ void CVideoRecorder::TFrameDeleter::operator()(AVFrame *frame) const
 	av_frame_free(&frame);
 }
 
-void CVideoRecorder::EnqueueFrame(unsigned int width, unsigned int height, const std::function<void (decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback)
+void CVideoRecorder::EnqueueFrame(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback)
 {
-	decltype(frameQueue)::value_type frame(width * height);
-	GetPixelsCallback(frame.data());
+	decltype(frameQueue)::value_type frame{ std::make_unique<TPixels::element_type []>(width * height), width, height };
+	GetPixelsCallback(frame.pixels.get());
 	std::lock_guard<decltype(mtx)> lck(mtx);
 	frameQueue.push(std::move(frame));
 }
 
 void CVideoRecorder::Process()
 {
+	do
+	{
+		wclog << "Saving screenshot " << screenshotPaths.front() << "..." << endl;
+
+		using namespace DirectX;
+		const auto result = SaveToWICFile(
+			{ width, height, DXGI_FORMAT_B8G8R8A8_UNORM, srcStride, srcStride * height, reinterpret_cast<uint8_t *>(frameQueue.data()) },
+			WIC_FLAGS_NONE, GetWICCodec(WIC_CODEC_JPEG), screenshotPaths.front().c_str());
+
+		AssertHR(result);
+		if (SUCCEEDED(result))
+			wclog << "Screenshot " << screenshotPaths.front() << " have been saved." << endl;
+		else
+			wcerr << "Fail to save screenshot " << screenshotPaths.front() << " (hr=" << result << ")." << endl;
+
+		screenshotPaths.pop();
+	} while (!screenshotPaths.empty());
+
+	av_init_packet(packet.get());
+	packet->data = NULL;
+	packet->size = 0;
+
+	const auto clean = [this]
+	{
+		avcodec_close(context.get());
+		frame.reset();
+		videoFile.close();
+		videoFile.clear();
+	};
+
+	cvtCtx.reset(sws_getCachedContext(cvtCtx.release(),
+		width,			height,				AV_PIX_FMT_BGRA,
+		context->width,	context->height,	context->pix_fmt,
+		SWS_BILINEAR, NULL, NULL, NULL));
+	assert(cvtCtx);
+	if (!cvtCtx)
+	{
+		wcerr << "Fail to convert frame for video." << endl;
+		clean();
+		return;
+	}
+	const auto src = reinterpret_cast<const uint8_t *const>(frameQueue.data());
+	sws_scale(cvtCtx.get(), &src, &srcStride, 0, height, frame->data, frame->linesize);
 }
 
 CVideoRecorder::CVideoRecorder() try :
@@ -76,31 +119,14 @@ CVideoRecorder::~CVideoRecorder()
 	worker.join();
 }
 
-void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::function<void(decltype(frameQueue)::value_type::pointer)> &GetPixelsCallback)
+void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback)
 {
 	const int srcStride = width * sizeof(decltype(frameQueue)::value_type);
 
 	if (takeScreenshot)
-	{
-		UpdatePixelData(width, height, GetPixelsCallback);
-		do
-		{
-			wclog << "Saving screenshot " << screenshotPaths.front() << "..." << endl;
+		EnqueueFrame(width, height, GetPixelsCallback);
 
-			using namespace DirectX;
-			const auto result = SaveToWICFile(
-				{ width, height, DXGI_FORMAT_B8G8R8A8_UNORM, srcStride, srcStride * height, reinterpret_cast<uint8_t *>(frameQueue.data()) },
-				WIC_FLAGS_NONE, GetWICCodec(WIC_CODEC_JPEG), screenshotPaths.front().c_str());
-
-			AssertHR(result);
-			if (SUCCEEDED(result))
-				wclog << "Screenshot " << screenshotPaths.front() << " have been saved." << endl;
-			else
-				wcerr << "Fail to save screenshot " << screenshotPaths.front() << " (hr=" << result << ")." << endl;
-
-			screenshotPaths.pop();
-		} while (!screenshotPaths.empty());
-	}
+	bool needVideo = false;
 
 	assert(videoFile.good());
 	if (videoFile.is_open())
@@ -110,36 +136,10 @@ void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::fu
 		const auto now = clock::now();
 		if (now >= nextFrame)
 		{
-			av_init_packet(packet.get());
-			packet->data = NULL;
-			packet->size = 0;
-
 			const auto delta = duration_cast<duration<clock::rep, ratio<1, fps>>>(now - nextFrame);
 
 			if (!takeScreenshot)
-				UpdatePixelData(width, height, GetPixelsCallback);
-
-			const auto clean = [this]
-			{
-				avcodec_close(context.get());
-				frame.reset();
-				videoFile.close();
-				videoFile.clear();
-			};
-
-			cvtCtx.reset(sws_getCachedContext(cvtCtx.release(),
-				width,			height,				AV_PIX_FMT_BGRA,
-				context->width,	context->height,	context->pix_fmt,
-				SWS_BILINEAR, NULL, NULL, NULL));
-			assert(cvtCtx);
-			if (!cvtCtx)
-			{
-				wcerr << "Fail to convert frame for video." << endl;
-				clean();
-				return;
-			}
-			const auto src = reinterpret_cast<const uint8_t *const>(frameQueue.data());
-			sws_scale(cvtCtx.get(), &src, &srcStride, 0, height, frame->data, frame->linesize);
+				EnqueueFrame(width, height, GetPixelsCallback);
 
 			auto i = delta.count();
 			do
@@ -178,6 +178,8 @@ void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::fu
 
 void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const wchar_t filename[])
 {
+	std::lock_guard<decltype(mtx)> lck(mtx);
+
 	assert(videoFile.good());
 	assert(!videoFile.is_open());
 
@@ -273,4 +275,10 @@ void CVideoRecorder::StopRecord()
 	avcodec_close(context.get());
 
 	frame.reset();
+}
+
+void CVideoRecorder::Screenshot(std::wstring &&filename)
+{
+	std::lock_guard<decltype(mtx)> lck(mtx);
+	screenshotPaths.push(std::move(filename));
 }
