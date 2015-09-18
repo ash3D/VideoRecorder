@@ -6,15 +6,19 @@
 #include <queue>
 #include <memory>
 #include <utility>
+#include <type_traits>
 #include <functional>
 #include <fstream>
 #include <chrono>
+#include <ratio>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <cstdint>
 
 class CVideoRecorder
 {
+	static const/*expr*/ unsigned int fps = 25;
 	static const struct AVCodec *const codec;
 
 	struct TContextDeleter
@@ -31,9 +35,10 @@ class CVideoRecorder
 	{
 		void operator ()(struct AVFrame *frame) const;
 	};
-	std::unique_ptr<struct AVFrame, TFrameDeleter> frame;
+	std::unique_ptr<struct AVFrame, TFrameDeleter> dstFrame;
 
 	typedef std::chrono::steady_clock clock;
+	typedef std::chrono::duration<clock::rep, std::ratio<1, fps>> TFrameDuration;
 	clock::time_point nextFrame;
 
 	std::ofstream videoFile;
@@ -45,21 +50,42 @@ class CVideoRecorder
 		std::unique_ptr<std::array<uint8_t, 4> []> pixels;
 		unsigned int width, height;
 		decltype(screenshotPaths) screenshotPaths;
-		bool video;
+		std::conditional<std::is_floating_point<TFrameDuration::rep>::value, unsigned long long int, TFrameDuration::rep>::type videoPendingFrames;
 
-		// remove after transition to VS 2015 toolset which generates it automatically
+		// TODO: remove after transition to VS 2015 toolset which generates it automatically
 	public:
-		TFrame(TFrame &&) = default;
-		TFrame &operator =(TFrame &&) = default;
+		TFrame(decltype(pixels) &&pixels, unsigned int width, unsigned int height, decltype(screenshotPaths) &&screenshotPaths, decltype(videoPendingFrames) &&videoPendingFrames) :
+			pixels(std::move(pixels)), width(width), height(height), screenshotPaths(std::move(screenshotPaths)), videoPendingFrames(std::move(videoPendingFrames))
+		{}
+		TFrame(TFrame &&src) :
+			pixels(std::move(src.pixels)),
+			width(src.width), height(src.height),
+			screenshotPaths(std::move(src.screenshotPaths)),
+			videoPendingFrames(std::move(src.videoPendingFrames))
+		{}
+		TFrame &operator =(TFrame &&src)
+		{
+			pixels = std::move(src.pixels);
+			width = src.width, height = src.height;
+			screenshotPaths = std::move(src.screenshotPaths);
+			videoPendingFrames = std::move(src.videoPendingFrames);
+			return *this;
+		}
 	};
 	std::queue<TFrame> frameQueue;
 	typedef decltype(decltype(frameQueue)::value_type::pixels) TPixels;
 
+	std::recursive_mutex mtx, videoFileMtx;
+	std::condition_variable_any workerEvent;
+	enum class WorkerCondition : uint_least8_t
+	{
+		WAIT,
+		DO_JOB,
+		FINISH,
+	} workerCondition = WorkerCondition::WAIT;
 	std::thread worker;
-	std::mutex mtx;
 
 private:
-	void EnqueueFrame(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback);
 	void Process();
 
 public:
