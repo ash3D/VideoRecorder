@@ -242,7 +242,7 @@ void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const 
 
 	wclog << "Recording video " << filename << "..." << endl;
 
-	context->bit_rate = 400000 * 8;
+	context->bit_rate = 400000 * 8 * 8;
 	context->width = width & ~1;
 	context->height = height & ~1;
 	context->time_base = { 1, fps };
