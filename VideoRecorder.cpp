@@ -79,64 +79,67 @@ void CVideoRecorder::Process()
 					srcFrame.screenshotPaths.pop();
 				}
 
-				av_init_packet(packet.get());
-				packet->data = NULL;
-				packet->size = 0;
-
-				const auto clean = [this]
+				if (srcFrame.videoPendingFrames)
 				{
-					avcodec_close(context.get());
-					dstFrame.reset();
+					av_init_packet(packet.get());
+					packet->data = NULL;
+					packet->size = 0;
 
-					std::lock_guard<decltype(videoFileMtx)> videoFileLck(videoFileMtx);
-					videoFile.close();
-					videoFile.clear();
-				};
-
-				cvtCtx.reset(sws_getCachedContext(cvtCtx.release(),
-					srcFrame.width, srcFrame.height, AV_PIX_FMT_BGRA,
-					context->width, context->height, context->pix_fmt,
-					SWS_BILINEAR, NULL, NULL, NULL));
-				assert(cvtCtx);
-				if (!cvtCtx)
-				{
-					wcerr << "Fail to convert frame for video." << endl;
-					clean();
-					continue;
-				}
-				const auto src = reinterpret_cast<const uint8_t *const>(srcFrame.pixels.get());
-				sws_scale(cvtCtx.get(), &src, &srcStride, 0, srcFrame.height, dstFrame->data, dstFrame->linesize);
-
-				while (srcFrame.videoPendingFrames--)
-				{
-					int gotPacket;
-					const auto result = avcodec_encode_video2(context.get(), packet.get(), dstFrame.get(), &gotPacket);
-					assert(result == 0);
-					if (result != 0)
+					const auto clean = [this]
 					{
-						wcerr << "Fail to encode frame for video." << endl;
+						avcodec_close(context.get());
+						dstFrame.reset();
+
+						std::lock_guard<decltype(videoFileMtx)> videoFileLck(videoFileMtx);
+						videoFile.close();
+						videoFile.clear();
+					};
+
+					cvtCtx.reset(sws_getCachedContext(cvtCtx.release(),
+						srcFrame.width, srcFrame.height, AV_PIX_FMT_BGRA,
+						context->width, context->height, context->pix_fmt,
+						SWS_BILINEAR, NULL, NULL, NULL));
+					assert(cvtCtx);
+					if (!cvtCtx)
+					{
+						wcerr << "Fail to convert frame for video." << endl;
 						clean();
 						continue;
 					}
-					if (gotPacket)
+					const auto src = reinterpret_cast<const uint8_t *const>(srcFrame.pixels.get());
+					sws_scale(cvtCtx.get(), &src, &srcStride, 0, srcFrame.height, dstFrame->data, dstFrame->linesize);
+
+					do
 					{
+						int gotPacket;
+						const auto result = avcodec_encode_video2(context.get(), packet.get(), dstFrame.get(), &gotPacket);
+						assert(result == 0);
+						if (result != 0)
 						{
-							std::lock_guard<decltype(videoFileMtx)> videoFileLck(videoFileMtx);
-							videoFile.write((const char *)packet->data, packet->size);
+							wcerr << "Fail to encode frame for video." << endl;
+							clean();
+							continue;
 						}
-						av_free_packet(packet.get());
+						if (gotPacket)
+						{
+							{
+								std::lock_guard<decltype(videoFileMtx)> videoFileLck(videoFileMtx);
+								videoFile.write((const char *)packet->data, packet->size);
+							}
+							av_free_packet(packet.get());
+						}
+						assert(videoFile.good());
+
+						dstFrame->pts++;
+					} while (--srcFrame.videoPendingFrames);
+
+					std::lock_guard<decltype(videoFileMtx)> videoFileLck(videoFileMtx);
+					if (videoFile.bad())
+					{
+						wcerr << "Fail to write video data to file." << endl;
+						clean();
+						continue;
 					}
-					assert(videoFile.good());
-
-					dstFrame->pts++;
-				}
-
-				std::lock_guard<decltype(videoFileMtx)> videoFileLck(videoFileMtx);
-				if (videoFile.bad())
-				{
-					wcerr << "Fail to write video data to file." << endl;
-					clean();
-					continue;
 				}
 			}
 			break;
