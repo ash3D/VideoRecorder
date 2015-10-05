@@ -240,8 +240,6 @@ void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const 
 		StopRecord();
 	}
 
-	wclog << "Recording video " << filename << "..." << endl;
-
 	context->width = width & ~1;
 	context->height = height & ~1;
 	context->time_base = { 1, fps };
@@ -249,6 +247,11 @@ void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const 
 	context->gop_size = 10;
 	context->max_b_frames = 1;
 	context->pix_fmt = AV_PIX_FMT_YUV420P;
+	if (const auto availableThreads = std::thread::hardware_concurrency())
+		context->thread_count = availableThreads;	// TODO: consider reserving 1 or more threads for other stuff
+
+	wclog << "Recording video " << filename << " (using " << context->thread_count << " threads for encoding)..." << endl;
+
 	{
 		const auto result = avcodec_open2(context.get(), codec, NULL);
 		assert(result == 0);
