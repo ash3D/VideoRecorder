@@ -226,7 +226,7 @@ void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::fu
 	}
 }
 
-void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const wchar_t filename[])
+void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const wchar_t filename[], double bitrateFactor)
 {
 	std::unique_lock<decltype(mtx)> lck(mtx);
 	workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
@@ -242,10 +242,10 @@ void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const 
 
 	wclog << "Recording video " << filename << "..." << endl;
 
-	context->bit_rate = 400000 * 8 * 8;
 	context->width = width & ~1;
 	context->height = height & ~1;
 	context->time_base = { 1, fps };
+	context->bit_rate = context->width * context->height * (fps * .07 * 4u * bitrateFactor);
 	context->gop_size = 10;
 	context->max_b_frames = 1;
 	context->pix_fmt = AV_PIX_FMT_YUV420P;

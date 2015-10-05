@@ -95,7 +95,7 @@ public:
 public:
 	void Draw(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback);
 	
-	void StartRecord(unsigned int width, unsigned int height, const wchar_t filename[]);
+	void StartRecord(unsigned int width, unsigned int height, const wchar_t filename[], double bitrateFactor = 1);
 	void StopRecord();
 
 	void Screenshot(std::wstring &&filename);
