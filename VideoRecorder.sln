@@ -5,10 +5,14 @@ VisualStudioVersion = 14.0.23107.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VideoRecorder", "VideoRecorder.vcxproj", "{B1E429DE-4063-4F3C-8AE3-31ED6D265410}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DirectXTex", "DirectXTex\DirectXTex\DirectXTex_Desktop_2013.vcxproj", "{371B9FA9-4C90-4AC6-A123-ACED756D6C77}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
 		Debug|x86 = Debug|x86
+		Profile|x64 = Profile|x64
+		Profile|x86 = Profile|x86
 		Release|x64 = Release|x64
 		Release|x86 = Release|x86
 	EndGlobalSection
@@ -17,10 +21,26 @@ Global
 		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Debug|x64.Build.0 = Debug|x64
 		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Debug|x86.ActiveCfg = Debug|Win32
 		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Debug|x86.Build.0 = Debug|Win32
+		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Profile|x64.ActiveCfg = Release|x64
+		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Profile|x64.Build.0 = Release|x64
+		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Profile|x86.ActiveCfg = Release|Win32
+		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Profile|x86.Build.0 = Release|Win32
 		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Release|x64.ActiveCfg = Release|x64
 		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Release|x64.Build.0 = Release|x64
 		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Release|x86.ActiveCfg = Release|Win32
 		{B1E429DE-4063-4F3C-8AE3-31ED6D265410}.Release|x86.Build.0 = Release|Win32
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Debug|x64.ActiveCfg = Debug|x64
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Debug|x64.Build.0 = Debug|x64
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Debug|x86.ActiveCfg = Debug|Win32
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Debug|x86.Build.0 = Debug|Win32
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Profile|x64.ActiveCfg = Profile|x64
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Profile|x64.Build.0 = Profile|x64
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Profile|x86.ActiveCfg = Profile|Win32
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Profile|x86.Build.0 = Profile|Win32
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Release|x64.ActiveCfg = Release|x64
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Release|x64.Build.0 = Release|x64
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Release|x86.ActiveCfg = Release|Win32
+		{371B9FA9-4C90-4AC6-A123-ACED756D6C77}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
