@@ -15,6 +15,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <cstdint>
+#include <boost/preprocessor/seq/enum.hpp>
 
 class CVideoRecorder
 {
@@ -85,7 +86,16 @@ class CVideoRecorder
 	} workerCondition = WorkerCondition::WAIT;
 	std::thread worker;
 
+public:
+	enum class EncodePerformance;
 private:
+	struct TEncodeConfig
+	{
+		EncodePerformance performance;
+		int64_t crf;
+	};
+	static inline const char *EncodePerformance_2_Str(EncodePerformance performance);
+	void StartRecordImpl(unsigned int width, unsigned int height, const wchar_t filename[], const TEncodeConfig *config);
 	void Process();
 
 public:
@@ -95,7 +105,20 @@ public:
 public:
 	void Draw(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback);
 	
-	void StartRecord(unsigned int width, unsigned int height, const wchar_t filename[], double bitrateFactor = 1);
+#	define ENCODE_PERFORMANCE_VALUES (placebo)(veryslow)(slower)(slow)(medium)(fast)(faster)(veryfast)(superfast)(ultrafast)
+	enum class EncodePerformance
+	{
+		BOOST_PP_SEQ_ENUM(ENCODE_PERFORMANCE_VALUES)
+	};
+	void StartRecord(unsigned int width, unsigned int height, const wchar_t filename[])
+	{
+		StartRecordImpl(width, height, filename, nullptr);
+	}
+	void StartRecord(unsigned int width, unsigned int height, const wchar_t filename[], EncodePerformance performance, int64_t crf)
+	{
+		const TEncodeConfig config = { performance, crf };
+		StartRecordImpl(width, height, filename, &config);
+	}
 	void StopRecord();
 
 	void Screenshot(std::wstring &&filename);

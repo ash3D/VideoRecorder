@@ -3,11 +3,14 @@
 #include <exception>
 #include <new>
 #include <cassert>
+#include <boost/preprocessor/stringize.hpp>
+#include <boost/preprocessor/seq/for_each.hpp>
 extern "C"
 {
 #	include "libavcodec/avcodec.h"
 #	include "libswscale/swscale.h"
 #	include "libavutil/imgutils.h"
+#	include "libavutil/opt.h"
 }
 #include "DirectXTex.h"
 
@@ -22,7 +25,8 @@ static inline void AssertHR(HRESULT hr)
 
 static const/*expr*/ unsigned int cache_line = 64;
 
-const AVCodec *const CVideoRecorder::codec = (avcodec_register_all(), avcodec_find_encoder(AV_CODEC_ID_MPEG1VIDEO));
+#define CODEC_ID AV_CODEC_ID_HEVC
+const AVCodec *const CVideoRecorder::codec = (avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
 
 inline void CVideoRecorder::TContextDeleter::operator()(AVCodecContext *context) const
 {
@@ -34,6 +38,21 @@ void CVideoRecorder::TFrameDeleter::operator()(AVFrame *frame) const
 {
 	av_freep(frame->data);
 	av_frame_free(&frame);
+}
+
+inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodePerformance performance)
+{
+#	define MAP_ENUM_2_STRING(r, enum, value) \
+		case enum::value:	return BOOST_PP_STRINGIZE(value);
+
+	switch (performance)
+	{
+		BOOST_PP_SEQ_FOR_EACH(MAP_ENUM_2_STRING, EncodePerformance, ENCODE_PERFORMANCE_VALUES)
+	default:
+		throw "Invalid encode performance value.";
+	}
+
+#	undef MAP_ENUM_2_STRING
 }
 
 void CVideoRecorder::Process()
@@ -226,7 +245,7 @@ void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::fu
 	}
 }
 
-void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const wchar_t filename[], double bitrateFactor)
+void CVideoRecorder::StartRecordImpl(unsigned int width, unsigned int height, const wchar_t filename[], const TEncodeConfig *config)
 {
 	std::unique_lock<decltype(mtx)> lck(mtx);
 	workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
@@ -243,12 +262,26 @@ void CVideoRecorder::StartRecord(unsigned int width, unsigned int height, const 
 	context->width = width & ~1;
 	context->height = height & ~1;
 	context->time_base = { 1, fps };
-	context->bit_rate = context->width * context->height * (fps * .07 * 4u * bitrateFactor);
 	context->gop_size = 10;
 	context->max_b_frames = 1;
 	context->pix_fmt = AV_PIX_FMT_YUV420P;
 	if (const auto availableThreads = std::thread::hardware_concurrency())
 		context->thread_count = availableThreads;	// TODO: consider reserving 1 or more threads for other stuff
+#if CODEC_ID == AV_CODEC_ID_H264 || CODEC_ID == AV_CODEC_ID_HEVC
+	if (config)
+	{
+		try
+		{
+			av_opt_set(context->priv_data, "preset", EncodePerformance_2_Str(config->performance), 0);
+			av_opt_set_int(context.get(), "crf", config->crf, AV_OPT_SEARCH_CHILDREN);
+		}
+		catch (const char error[])
+		{
+			wcerr << error << endl;
+			return;
+		}
+	}
+#endif
 
 	wclog << "Recording video " << filename << " (using " << context->thread_count << " threads for encoding)..." << endl;
 
