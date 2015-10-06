@@ -83,13 +83,13 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>$(SolutionDir)VideoRecorder\lib\$(Platform)\$(Configuration)\</OutDir>
-    <IncludePath>E:\ffmpeg\ffmpeg-20150825-git-4c39892-win64-dev\include;$(IncludePath)</IncludePath>
-    <LibraryPath>E:\ffmpeg\ffmpeg-20150825-git-4c39892-win64-dev\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(IncludePath)</IncludePath>
+    <LibraryPath>$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <OutDir>$(SolutionDir)VideoRecorder\lib\$(Platform)\$(Configuration)\</OutDir>
-    <IncludePath>E:\ffmpeg\ffmpeg-20150825-git-4c39892-win64-dev\include;$(IncludePath)</IncludePath>
-    <LibraryPath>E:\ffmpeg\ffmpeg-20150825-git-4c39892-win64-dev\lib;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(IncludePath)</IncludePath>
+    <LibraryPath>$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
