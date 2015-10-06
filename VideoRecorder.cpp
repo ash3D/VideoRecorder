@@ -262,8 +262,6 @@ void CVideoRecorder::StartRecordImpl(unsigned int width, unsigned int height, co
 	context->width = width & ~1;
 	context->height = height & ~1;
 	context->time_base = { 1, fps };
-	context->gop_size = 10;
-	context->max_b_frames = 1;
 	context->pix_fmt = AV_PIX_FMT_YUV420P;
 	if (const auto availableThreads = std::thread::hardware_concurrency())
 		context->thread_count = availableThreads;	// TODO: consider reserving 1 or more threads for other stuff
