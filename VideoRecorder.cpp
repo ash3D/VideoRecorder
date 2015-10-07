@@ -367,6 +367,5 @@ void CVideoRecorder::StopRecord()
 
 void CVideoRecorder::Screenshot(std::wstring &&filename)
 {
-	std::lock_guard<decltype(mtx)> lck(mtx);
 	screenshotPaths.push(std::move(filename));
 }
