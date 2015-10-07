@@ -106,7 +106,8 @@
     </Link>
     <Lib />
     <Lib>
-      <AdditionalDependencies>avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2013\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -124,7 +125,8 @@
     </Link>
     <Lib />
     <Lib>
-      <AdditionalDependencies>avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2013\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -146,7 +148,8 @@
     </Link>
     <Lib />
     <Lib>
-      <AdditionalDependencies>avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2013\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -168,7 +171,8 @@
     </Link>
     <Lib />
     <Lib>
-      <AdditionalDependencies>avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2013\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
