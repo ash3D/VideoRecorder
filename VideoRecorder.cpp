@@ -1,10 +1,13 @@
 #include "VideoRecorder\include\VideoRecorder.h"
-#include <unordered_map>
+#include <filesystem>
+#include <algorithm>
+#include <iterator>
 #include <type_traits>
 #include <iostream>
 #include <exception>
 #include <new>
 #include <cassert>
+#include <cctype>
 #include <boost/preprocessor/stringize.hpp>
 #include <boost/preprocessor/seq/for_each.hpp>
 extern "C"
@@ -55,6 +58,40 @@ inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodePerformance per
 	}
 
 #	undef MAP_ENUM_2_STRING
+}
+
+static const/*expr*/ std::underlying_type<DirectX::WICCodecs>::type CODEC_DDS = 0xFFFF0001, CODEC_TGA = 0xFFFF0002;
+static const/*expr*/ std::pair<const wchar_t *, DirectX::WICCodecs> pictureFormats[] =
+{
+	{ L".bmp",	DirectX::WIC_CODEC_BMP			},
+	{ L".jpg",	DirectX::WIC_CODEC_JPEG			},
+	{ L".jpeg",	DirectX::WIC_CODEC_JPEG			},
+	{ L".png",	DirectX::WIC_CODEC_PNG			},
+	{ L".tif",	DirectX::WIC_CODEC_TIFF			},
+	{ L".tiff",	DirectX::WIC_CODEC_TIFF			},
+	{ L".gif",	DirectX::WIC_CODEC_GIF			},
+	{ L".hdp",	DirectX::WIC_CODEC_WMP			},
+	{ L".jxr",	DirectX::WIC_CODEC_WMP			},
+	{ L".wdp",	DirectX::WIC_CODEC_WMP			},
+	{ L".ico",	DirectX::WIC_CODEC_ICO			},
+	{ L".dds",	DirectX::WICCodecs(CODEC_DDS)	},
+	{ L".tga",	DirectX::WICCodecs(CODEC_TGA)	},
+};
+
+static DirectX::WICCodecs GetScreenshotCodec(std::wstring &&ext)
+{
+	std::transform(ext.begin(), ext.end(), ext.begin(), tolower);
+	const auto found = std::find_if(std::begin(pictureFormats), std::end(pictureFormats), [&ext](const std::remove_extent<decltype(pictureFormats)>::type &format)
+	{
+		return ext == format.first;
+	});
+	if (found == std::end(pictureFormats))
+	{
+		wcerr << "Unrecognized screenshot format \"" << ext << "\". Using \"tga\" as fallback." << endl;
+		return DirectX::WICCodecs(CODEC_TGA);
+	}
+	else
+		return found->second;
 }
 
 #pragma region Task
@@ -159,18 +196,35 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		wclog << "Saving screenshot " << srcFrame.screenshotPaths.front() << "..." << endl;
 
 		using namespace DirectX;
-		const auto result = SaveToWICFile(
-			{
-				srcFrame.width, srcFrame.height, DXGI_FORMAT_B8G8R8A8_UNORM,
-				srcStride, srcStride * srcFrame.height, reinterpret_cast<uint8_t *>(srcFrame.pixels.get())
-			},
-			WIC_FLAGS_NONE, GetWICCodec(WIC_CODEC_JPEG), srcFrame.screenshotPaths.front().c_str());
 
-		AssertHR(result);
-		if (SUCCEEDED(result))
+		std::tr2::sys::wpath screenshotPath(srcFrame.screenshotPaths.front());
+		const auto screenshotCodec = GetScreenshotCodec(screenshotPath.extension());
+
+		const Image image =
+		{
+			srcFrame.width, srcFrame.height, DXGI_FORMAT_B8G8R8A8_UNORM,
+			srcStride, srcStride * srcFrame.height, reinterpret_cast<uint8_t *>(srcFrame.pixels.get())
+		};
+
+		HRESULT hr;
+		switch (screenshotCodec)
+		{
+		case CODEC_DDS:
+			hr = SaveToDDSFile(image, DDS_FLAGS_NONE, srcFrame.screenshotPaths.front().c_str());
+			break;
+		case CODEC_TGA:
+			hr = SaveToTGAFile(image, srcFrame.screenshotPaths.front().c_str());
+			break;
+		default:
+			hr = SaveToWICFile(image, WIC_FLAGS_NONE, GetWICCodec(screenshotCodec), srcFrame.screenshotPaths.front().c_str());
+			break;
+		}
+
+		AssertHR(hr);
+		if (SUCCEEDED(hr))
 			wclog << "Screenshot " << srcFrame.screenshotPaths.front() << " has been saved." << endl;
 		else
-			wcerr << "Fail to save screenshot " << srcFrame.screenshotPaths.front() << " (hr=" << result << ")." << endl;
+			wcerr << "Fail to save screenshot " << srcFrame.screenshotPaths.front() << " (hr=" << hr << ")." << endl;
 
 		srcFrame.screenshotPaths.pop();
 	}
