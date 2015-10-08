@@ -6,7 +6,6 @@
 #include <queue>
 #include <memory>
 #include <utility>
-#include <type_traits>
 #include <functional>
 #include <fstream>
 #include <chrono>
@@ -46,38 +45,16 @@ class CVideoRecorder
 
 	std::queue<std::wstring> screenshotPaths;
 
-	struct TFrame
-	{
-		std::unique_ptr<std::array<uint8_t, 4> []> pixels;
-		unsigned int width, height;
-		decltype(screenshotPaths) screenshotPaths;
-		std::conditional<std::is_floating_point<TFrameDuration::rep>::value, unsigned long long int, TFrameDuration::rep>::type videoPendingFrames;
+	typedef std::unique_ptr<std::array<uint8_t, 4> []> TPixels;
 
-		// TODO: remove after transition to VS 2015 toolset which generates it automatically
-	public:
-		TFrame(decltype(pixels) &&pixels, unsigned int width, unsigned int height, decltype(screenshotPaths) &&screenshotPaths, decltype(videoPendingFrames) &&videoPendingFrames) :
-			pixels(std::move(pixels)), width(width), height(height), screenshotPaths(std::move(screenshotPaths)), videoPendingFrames(std::move(videoPendingFrames))
-		{}
-		TFrame(TFrame &&src) :
-			pixels(std::move(src.pixels)),
-			width(src.width), height(src.height),
-			screenshotPaths(std::move(src.screenshotPaths)),
-			videoPendingFrames(std::move(src.videoPendingFrames))
-		{}
-		TFrame &operator =(TFrame &&src)
-		{
-			pixels = std::move(src.pixels);
-			width = src.width, height = src.height;
-			screenshotPaths = std::move(src.screenshotPaths);
-			videoPendingFrames = std::move(src.videoPendingFrames);
-			return *this;
-		}
-	};
-	std::queue<TFrame> frameQueue;
-	typedef decltype(decltype(frameQueue)::value_type::pixels) TPixels;
+	struct ITask;
+	class CFrameTask;
+	class CStartVideoRecordRequest;
+	class CStopVideoRecordRequest;
+	std::queue<std::unique_ptr<ITask>> taskQueue;
 
-	std::recursive_mutex mtx, videoFileMtx;
-	std::condition_variable_any workerEvent;
+	std::mutex mtx;
+	std::condition_variable workerEvent;
 	enum class WorkerCondition : uint_least8_t
 	{
 		WAIT,
@@ -86,42 +63,57 @@ class CVideoRecorder
 	} workerCondition = WorkerCondition::WAIT;
 	std::thread worker;
 
+	bool videoRecordStarted = false;
+
 public:
 	enum class EncodePerformance;
 private:
 	struct TEncodeConfig
 	{
-		EncodePerformance performance;
 		int64_t crf;
+		EncodePerformance performance;
 	};
 	static inline const char *EncodePerformance_2_Str(EncodePerformance performance);
-	void StartRecordImpl(unsigned int width, unsigned int height, const wchar_t filename[], const TEncodeConfig *config);
+	void StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config);
 	void Process();
 
 public:
 	CVideoRecorder();
+#if defined _MSC_VER && _MSC_VER < 1900
+	CVideoRecorder(CVideoRecorder &) = delete;
+	void operator =(CVideoRecorder &) = delete;
+#else
+	CVideoRecorder(CVideoRecorder &&);
+#endif
 	~CVideoRecorder();
 
 public:
-	void Draw(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback);
-	
 #	define ENCODE_PERFORMANCE_VALUES (placebo)(veryslow)(slower)(slow)(medium)(fast)(faster)(veryfast)(superfast)(ultrafast)
 	enum class EncodePerformance
 	{
 		BOOST_PP_SEQ_ENUM(ENCODE_PERFORMANCE_VALUES)
 	};
-	void StartRecord(unsigned int width, unsigned int height, const wchar_t filename[])
+
+	void Draw(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback);
+	
+	template<typename String>
+	void StartRecord(String &&filename, unsigned int width, unsigned int height)
 	{
-		StartRecordImpl(width, height, filename, nullptr);
+		const TEncodeConfig config = { -1 };
+		StartRecordImpl(std::wstring(std::forward<String>(filename)), width, height, config);
 	}
-	void StartRecord(unsigned int width, unsigned int height, const wchar_t filename[], EncodePerformance performance, int64_t crf)
+
+	template<typename String>
+	void StartRecord(String &&filename, unsigned int width, unsigned int height, EncodePerformance performance, int64_t crf)
 	{
-		const TEncodeConfig config = { performance, crf };
-		StartRecordImpl(width, height, filename, &config);
+		const TEncodeConfig config = { crf, performance };
+		StartRecordImpl(std::wstring(std::forward<String>(filename)), width, height, config);
 	}
+
 	void StopRecord();
 
 	void Screenshot(std::wstring &&filename);
+
 	template<typename String>
 	void Screenshot(String &&filename)
 	{
