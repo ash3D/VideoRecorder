@@ -1,11 +1,11 @@
 #pragma once
 
-#include <array>
 #include <vector>
 #include <string>
 #include <queue>
 #include <memory>
 #include <utility>
+#include <type_traits>
 #include <functional>
 #include <fstream>
 #include <chrono>
@@ -44,8 +44,6 @@ class CVideoRecorder
 	std::ofstream videoFile;
 
 	std::queue<std::wstring> screenshotPaths;
-
-	typedef std::unique_ptr<std::array<uint8_t, 4> []> TPixels;
 
 	struct ITask;
 	class CFrameTask;
@@ -94,7 +92,33 @@ public:
 		BOOST_PP_SEQ_ENUM(ENCODE_PERFORMANCE_VALUES)
 	};
 
-	void Draw(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback);
+	class CFrame
+	{
+		friend class CVideoRecorder;
+
+	private:
+		decltype(screenshotPaths) screenshotPaths;
+		std::conditional<std::is_floating_point<TFrameDuration::rep>::value, uintmax_t, TFrameDuration::rep>::type videoPendingFrames;
+
+	public:
+		typedef std::pair<decltype(screenshotPaths), decltype(videoPendingFrames)> &&TOpaque;
+		CFrame(TOpaque opaque);
+		CFrame(CFrame &) = delete;
+		void operator =(CFrame &) = delete;
+		virtual ~CFrame() = default;
+
+	public:
+		virtual struct TFrameData
+		{
+			unsigned int width, height;
+			size_t stride;
+			const uint8_t *pixels;
+		} GetFrameData() const = 0;
+	};
+
+public:
+	void Sample(const std::function<void (CFrame::TOpaque)> &RequestFrameCallback);
+	void EnqueueFrame(std::shared_ptr<CFrame> frame);
 	
 	template<typename String>
 	void StartRecord(String &&filename, unsigned int width, unsigned int height)

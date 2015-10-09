@@ -2,7 +2,6 @@
 #include <filesystem>
 #include <algorithm>
 #include <iterator>
-#include <type_traits>
 #include <iostream>
 #include <exception>
 #include <new>
@@ -104,40 +103,10 @@ struct CVideoRecorder::ITask
 #pragma region CFrameTask
 class CVideoRecorder::CFrameTask final : public ITask
 {
-public:
-	struct TFrame
-	{
-		TPixels pixels;
-		unsigned int width, height;
-		decltype(screenshotPaths) screenshotPaths;
-		std::conditional<std::is_floating_point<TFrameDuration::rep>::value, unsigned long long int, TFrameDuration::rep>::type videoPendingFrames;
-
-		// TODO: remove after transition to VS 2015 toolset which generates it automatically
-	public:
-		TFrame(decltype(pixels) && pixels, unsigned int width, unsigned int height, decltype(screenshotPaths) && screenshotPaths, decltype(videoPendingFrames) && videoPendingFrames) :
-			pixels(std::move(pixels)), width(width), height(height), screenshotPaths(std::move(screenshotPaths)), videoPendingFrames(std::move(videoPendingFrames))
-		{}
-		TFrame(TFrame &&src) :
-			pixels(std::move(src.pixels)),
-			width(src.width), height(src.height),
-			screenshotPaths(std::move(src.screenshotPaths)),
-			videoPendingFrames(std::move(src.videoPendingFrames))
-		{}
-		TFrame &operator =(TFrame &&src)
-		{
-			pixels = std::move(src.pixels);
-			width = src.width, height = src.height;
-			screenshotPaths = std::move(src.screenshotPaths);
-			videoPendingFrames = std::move(src.videoPendingFrames);
-			return *this;
-		}
-	};
-
-private:
-	TFrame srcFrame;
+	std::shared_ptr<CFrame> srcFrame;
 
 public:
-	CFrameTask(TFrame &&frame) : srcFrame(std::move(frame)) {}
+	CFrameTask(std::shared_ptr<CFrame> &&frame) : srcFrame(std::move(frame)) {}
 #if !(defined _MSC_VER && _MSC_VER < 1900)
 	CFrameTask(CFrameTask &&) = default;
 #endif
@@ -189,47 +158,47 @@ public:
 
 void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 {
-	const int srcStride = srcFrame.width * sizeof(TPixels::element_type);
+	const auto srcFrameData = srcFrame->GetFrameData();
 
-	while (!srcFrame.screenshotPaths.empty())
+	while (!srcFrame->screenshotPaths.empty())
 	{
-		wclog << "Saving screenshot " << srcFrame.screenshotPaths.front() << "..." << endl;
+		wclog << "Saving screenshot " << srcFrame->screenshotPaths.front() << "..." << endl;
 
 		using namespace DirectX;
 
-		std::tr2::sys::wpath screenshotPath(srcFrame.screenshotPaths.front());
+		std::tr2::sys::wpath screenshotPath(srcFrame->screenshotPaths.front());
 		const auto screenshotCodec = GetScreenshotCodec(screenshotPath.extension());
 
 		const Image image =
 		{
-			srcFrame.width, srcFrame.height, DXGI_FORMAT_B8G8R8A8_UNORM,
-			srcStride, srcStride * srcFrame.height, reinterpret_cast<uint8_t *>(srcFrame.pixels.get())
+			srcFrameData.width, srcFrameData.height, DXGI_FORMAT_B8G8R8A8_UNORM,
+			srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(srcFrameData.pixels)
 		};
 
 		HRESULT hr;
 		switch (screenshotCodec)
 		{
 		case CODEC_DDS:
-			hr = SaveToDDSFile(image, DDS_FLAGS_NONE, srcFrame.screenshotPaths.front().c_str());
+			hr = SaveToDDSFile(image, DDS_FLAGS_NONE, srcFrame->screenshotPaths.front().c_str());
 			break;
 		case CODEC_TGA:
-			hr = SaveToTGAFile(image, srcFrame.screenshotPaths.front().c_str());
+			hr = SaveToTGAFile(image, srcFrame->screenshotPaths.front().c_str());
 			break;
 		default:
-			hr = SaveToWICFile(image, WIC_FLAGS_NONE, GetWICCodec(screenshotCodec), srcFrame.screenshotPaths.front().c_str());
+			hr = SaveToWICFile(image, WIC_FLAGS_NONE, GetWICCodec(screenshotCodec), srcFrame->screenshotPaths.front().c_str());
 			break;
 		}
 
 		AssertHR(hr);
 		if (SUCCEEDED(hr))
-			wclog << "Screenshot " << srcFrame.screenshotPaths.front() << " has been saved." << endl;
+			wclog << "Screenshot " << srcFrame->screenshotPaths.front() << " has been saved." << endl;
 		else
-			wcerr << "Fail to save screenshot " << srcFrame.screenshotPaths.front() << " (hr=" << hr << ")." << endl;
+			wcerr << "Fail to save screenshot " << srcFrame->screenshotPaths.front() << " (hr=" << hr << ")." << endl;
 
-		srcFrame.screenshotPaths.pop();
+		srcFrame->screenshotPaths.pop();
 	}
 
-	if (srcFrame.videoPendingFrames && (assert(parent.videoFile.good()), parent.videoFile.is_open()))
+	if (srcFrame->videoPendingFrames && (assert(parent.videoFile.good()), parent.videoFile.is_open()))
 	{
 		av_init_packet(parent.packet.get());
 		parent.packet->data = NULL;
@@ -245,7 +214,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		};
 
 		parent.cvtCtx.reset(sws_getCachedContext(parent.cvtCtx.release(),
-			srcFrame.width, srcFrame.height, AV_PIX_FMT_BGRA,
+			srcFrameData.width, srcFrameData.height, AV_PIX_FMT_BGRA,
 			parent.context->width, parent.context->height, parent.context->pix_fmt,
 			SWS_BILINEAR, NULL, NULL, NULL));
 		assert(parent.cvtCtx);
@@ -255,8 +224,8 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 			clean();
 			return;
 		}
-		const auto src = reinterpret_cast<const uint8_t *const>(srcFrame.pixels.get());
-		sws_scale(parent.cvtCtx.get(), &src, &srcStride, 0, srcFrame.height, parent.dstFrame->data, parent.dstFrame->linesize);
+		const int srcStride = srcFrameData.stride;
+		sws_scale(parent.cvtCtx.get(), &srcFrameData.pixels, &srcStride, 0, srcFrameData.height, parent.dstFrame->data, parent.dstFrame->linesize);
 
 		do
 		{
@@ -277,7 +246,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 			assert(parent.videoFile.good());
 
 			parent.dstFrame->pts++;
-		} while (--srcFrame.videoPendingFrames);
+		} while (--srcFrame->videoPendingFrames);
 
 		if (parent.videoFile.bad())
 		{
@@ -404,6 +373,9 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 }
 #pragma endregion
 
+CVideoRecorder::CFrame::CFrame(TOpaque opaque) :
+	screenshotPaths(std::move(opaque.first)), videoPendingFrames(std::move(opaque.second)) {}
+
 void CVideoRecorder::Process()
 {
 	while (true)
@@ -478,9 +450,9 @@ CVideoRecorder::~CVideoRecorder()
 	worker.join();
 }
 
-void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::function<void (TPixels::pointer)> &GetPixelsCallback)
+void CVideoRecorder::Sample(const std::function<void (CFrame::TOpaque)> &RequestFrameCallback)
 {
-	decltype(CFrameTask::TFrame::videoPendingFrames) videoPendingFrames = 0;
+	decltype(CFrame::videoPendingFrames) videoPendingFrames = 0;
 
 	if (videoRecordStarted)
 	{
@@ -495,21 +467,15 @@ void CVideoRecorder::Draw(unsigned int width, unsigned int height, const std::fu
 	}
 
 	if (videoPendingFrames || !screenshotPaths.empty())
-	{
-		CFrameTask::TFrame srcFrame
-		{
-			std::make_unique<TPixels::element_type []>(width * height),
-			width, height,
-			std::move(screenshotPaths),
-			std::move(videoPendingFrames)
-		};
-		GetPixelsCallback(srcFrame.pixels.get());
+		RequestFrameCallback(std::make_pair(std::move(screenshotPaths), std::move(videoPendingFrames)));
+}
 
-		std::lock_guard<decltype(mtx)> lck(mtx);
-		taskQueue.emplace(new CFrameTask(std::move(srcFrame)));
-		workerCondition = WorkerCondition::DO_JOB;
-		workerEvent.notify_all();
-	}
+void CVideoRecorder::EnqueueFrame(std::shared_ptr<CFrame> frame)
+{
+	std::lock_guard<decltype(mtx)> lck(mtx);
+	taskQueue.emplace(new CFrameTask(std::move(frame)));
+	workerCondition = WorkerCondition::DO_JOB;
+	workerEvent.notify_all();
 }
 
 void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config)
