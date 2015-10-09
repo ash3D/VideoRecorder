@@ -294,7 +294,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	assert(!parent.videoFile.is_open());
 
 	if (!matchedStop)
-		wcerr << "Starting new video recording before stoping previouse one." << endl;
+		wcerr << "Starting new video record session without stopping previouse one." << endl;
 
 	if (parent.videoFile.is_open())
 	{
@@ -371,7 +371,7 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 	assert(parent.videoFile.is_open());
 
 	if (!matchedStart)
-		wcerr << "Stopping not running video record." << endl;
+		wcerr << "Stopping video record without matched start." << endl;
 
 	if (!parent.videoFile.is_open())
 		return;
