@@ -112,7 +112,7 @@ public:
 		{
 			unsigned int width, height;
 			size_t stride;
-			const uint8_t *pixels;
+			const void *pixels;
 		} GetFrameData() const = 0;
 	};
 

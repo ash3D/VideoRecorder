@@ -172,7 +172,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		const Image image =
 		{
 			srcFrameData.width, srcFrameData.height, DXGI_FORMAT_B8G8R8A8_UNORM,
-			srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(srcFrameData.pixels)
+			srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(srcFrameData.pixels))
 		};
 
 		HRESULT hr;
@@ -225,7 +225,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 			return;
 		}
 		const int srcStride = srcFrameData.stride;
-		sws_scale(parent.cvtCtx.get(), &srcFrameData.pixels, &srcStride, 0, srcFrameData.height, parent.dstFrame->data, parent.dstFrame->linesize);
+		sws_scale(parent.cvtCtx.get(), reinterpret_cast<const uint8_t *const*>(&srcFrameData.pixels), &srcStride, 0, srcFrameData.height, parent.dstFrame->data, parent.dstFrame->linesize);
 
 		do
 		{
