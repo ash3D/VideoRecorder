@@ -450,7 +450,7 @@ CVideoRecorder::~CVideoRecorder()
 	worker.join();
 }
 
-void CVideoRecorder::Sample(const std::function<void (CFrame::TOpaque)> &RequestFrameCallback)
+void CVideoRecorder::SampleFrame(const std::function<void (CFrame::TOpaque)> &RequestFrameCallback)
 {
 	decltype(CFrame::videoPendingFrames) videoPendingFrames = 0;
 

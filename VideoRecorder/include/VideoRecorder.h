@@ -117,7 +117,7 @@ public:
 	};
 
 public:
-	void Sample(const std::function<void (CFrame::TOpaque)> &RequestFrameCallback);
+	void SampleFrame(const std::function<void (CFrame::TOpaque)> &RequestFrameCallback);
 	void EnqueueFrame(std::shared_ptr<CFrame> frame);
 	
 	template<typename String>
