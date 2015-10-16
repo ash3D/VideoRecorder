@@ -11,10 +11,10 @@
 #include <boost/preprocessor/seq/for_each.hpp>
 extern "C"
 {
-#	include "libavcodec/avcodec.h"
-#	include "libswscale/swscale.h"
-#	include "libavutil/imgutils.h"
-#	include "libavutil/opt.h"
+#	include <libavcodec/avcodec.h>
+#	include <libswscale/swscale.h>
+#	include <libavutil/imgutils.h>
+#	include <libavutil/opt.h>
 }
 #include "DirectXTex.h"
 
