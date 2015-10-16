@@ -27,7 +27,7 @@ static inline void AssertHR(HRESULT hr)
 	assert(SUCCEEDED(hr));
 }
 
-static const/*expr*/ unsigned int cache_line = 64;
+static const/*expr*/ unsigned int cache_line = 64;	// for common x86 CPUs
 
 #define CODEC_ID AV_CODEC_ID_HEVC
 const AVCodec *const CVideoRecorder::codec = (avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
@@ -97,6 +97,7 @@ static DirectX::WICCodecs GetScreenshotCodec(std::wstring &&ext)
 struct CVideoRecorder::ITask
 {
 	virtual void operator ()(CVideoRecorder &parent) = 0;
+	virtual operator bool() const { return true; }	// is task ready to handle
 	virtual ~ITask() = default;
 };
 
@@ -113,6 +114,7 @@ public:
 
 public:
 	void operator ()(CVideoRecorder &parent) override;
+	operator bool() const override { return srcFrame->ready; }
 	~CFrameTask() override = default;
 };
 #pragma endregion
@@ -373,19 +375,34 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 }
 #pragma endregion
 
+#pragma region CFrame
 CVideoRecorder::CFrame::CFrame(TOpaque opaque) :
-	screenshotPaths(std::move(opaque.first)), videoPendingFrames(std::move(opaque.second)) {}
+	parent				(std::get<0>(std::move(opaque))),
+	screenshotPaths		(std::get<1>(std::move(opaque))),
+	videoPendingFrames	(std::get<2>(std::move(opaque)))
+{}
+
+void CVideoRecorder::CFrame::Ready()
+{
+	std::lock_guard<decltype(mtx)> lck(parent.mtx);
+	ready = true;
+	parent.workerCondition = WorkerCondition::DO_JOB;
+	parent.workerEvent.notify_all();
+}
+#pragma endregion
 
 void CVideoRecorder::Process()
 {
+	std::unique_lock<decltype(mtx)> lck(mtx);
 	while (true)
 	{
-		std::unique_lock<decltype(mtx)> lck(mtx);
-		workerEvent.wait(lck, [this] { return workerCondition != WorkerCondition::WAIT; });
 		switch (workerCondition)
 		{
+		case WorkerCondition::WAIT:
+			workerEvent.wait(lck);
+			break;
 		case WorkerCondition::DO_JOB:
-			if (taskQueue.empty())
+			if (taskQueue.empty() || !*taskQueue.front())
 			{
 				workerCondition = WorkerCondition::WAIT;
 				workerEvent.notify_one();
@@ -396,6 +413,7 @@ void CVideoRecorder::Process()
 				taskQueue.pop();
 				lck.unlock();
 				task->operator ()(*this);
+				lck.lock();
 			}
 			break;
 		case WorkerCondition::FINISH:
@@ -404,7 +422,6 @@ void CVideoRecorder::Process()
 			assert(false);
 			__assume(false);
 		}
-
 	}
 }
 
@@ -450,7 +467,7 @@ CVideoRecorder::~CVideoRecorder()
 	worker.join();
 }
 
-void CVideoRecorder::SampleFrame(const std::function<void (CFrame::TOpaque)> &RequestFrameCallback)
+void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::TOpaque)> &RequestFrameCallback)
 {
 	decltype(CFrame::videoPendingFrames) videoPendingFrames = 0;
 
@@ -467,15 +484,13 @@ void CVideoRecorder::SampleFrame(const std::function<void (CFrame::TOpaque)> &Re
 	}
 
 	if (videoPendingFrames || !screenshotPaths.empty())
-		RequestFrameCallback(std::make_pair(std::move(screenshotPaths), std::move(videoPendingFrames)));
-}
-
-void CVideoRecorder::EnqueueFrame(std::shared_ptr<CFrame> frame)
-{
-	std::lock_guard<decltype(mtx)> lck(mtx);
-	taskQueue.emplace(new CFrameTask(std::move(frame)));
-	workerCondition = WorkerCondition::DO_JOB;
-	workerEvent.notify_all();
+	{
+		auto frame = RequestFrameCallback(std::make_tuple(std::ref(*this), std::move(screenshotPaths), std::move(videoPendingFrames)));
+		std::lock_guard<decltype(mtx)> lck(mtx);
+		taskQueue.emplace(new CFrameTask(std::move(frame)));
+		workerCondition = WorkerCondition::DO_JOB;
+		workerEvent.notify_all();
+	}
 }
 
 void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config)

@@ -5,6 +5,7 @@
 #include <queue>
 #include <memory>
 #include <utility>
+#include <tuple>
 #include <type_traits>
 #include <functional>
 #include <fstream>
@@ -97,15 +98,22 @@ public:
 		friend class CVideoRecorder;
 
 	private:
+		CVideoRecorder &parent;
 		decltype(screenshotPaths) screenshotPaths;
 		std::conditional<std::is_floating_point<TFrameDuration::rep>::value, uintmax_t, TFrameDuration::rep>::type videoPendingFrames;
+		bool ready = false;
 
 	public:
-		typedef std::pair<decltype(screenshotPaths), decltype(videoPendingFrames)> &&TOpaque;
+		typedef std::tuple<decltype(parent), decltype(screenshotPaths), decltype(videoPendingFrames)> &&TOpaque;
+
+	protected:
 		CFrame(TOpaque opaque);
 		CFrame(CFrame &) = delete;
 		void operator =(CFrame &) = delete;
 		virtual ~CFrame() = default;
+
+	public:
+		void Ready();
 
 	public:
 		virtual struct TFrameData
@@ -117,8 +125,7 @@ public:
 	};
 
 public:
-	void SampleFrame(const std::function<void (CFrame::TOpaque)> &RequestFrameCallback);
-	void EnqueueFrame(std::shared_ptr<CFrame> frame);
+	void SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::TOpaque)> &RequestFrameCallback);
 	
 	template<typename String>
 	void StartRecord(String &&filename, unsigned int width, unsigned int height)
