@@ -1,4 +1,4 @@
-#include "VideoRecorder\include\VideoRecorder.h"
+#include "VideoRecorder/include/VideoRecorder.h"
 #include <filesystem>
 #include <algorithm>
 #include <iterator>
@@ -104,6 +104,9 @@ struct CVideoRecorder::ITask
 #pragma region CFrameTask
 class CVideoRecorder::CFrameTask final : public ITask
 {
+	friend void CFrame::Cancel();
+
+private:
 	std::shared_ptr<CFrame> srcFrame;
 
 public:
@@ -389,6 +392,29 @@ void CVideoRecorder::CFrame::Ready()
 	parent.workerCondition = WorkerCondition::DO_JOB;
 	parent.workerEvent.notify_all();
 }
+
+void CVideoRecorder::CFrame::Cancel()
+{
+	std::lock_guard<decltype(mtx)> lck(parent.mtx);
+	/*
+		remove_if always traverses all the range
+		find_if/erase pair allows to stop traverse after element being removed was found
+	*/
+	const auto pred = [this](decltype(parent.taskQueue)::const_reference task)
+	{
+		if (const CFrameTask *frameTask = dynamic_cast<const CFrameTask *>(task.get()))
+			return frameTask->srcFrame.get() == this;
+		return false;
+	};
+	const auto taskToDelete = std::find_if(parent.taskQueue.cbegin(), parent.taskQueue.cend(), pred);
+	if (taskToDelete != parent.taskQueue.cend())
+	{
+		parent.taskQueue.erase(taskToDelete);
+		assert(std::find_if(parent.taskQueue.cbegin(), parent.taskQueue.cend(), pred) == parent.taskQueue.cend());
+	}
+	parent.workerCondition = WorkerCondition::DO_JOB;
+	parent.workerEvent.notify_all();
+}
 #pragma endregion
 
 void CVideoRecorder::Process()
@@ -410,7 +436,7 @@ void CVideoRecorder::Process()
 			else
 			{
 				auto task = std::move(taskQueue.front());
-				taskQueue.pop();
+				taskQueue.pop_front();
 				lck.unlock();
 				task->operator ()(*this);
 				lck.lock();
@@ -491,7 +517,7 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 	{
 		auto task = std::make_unique<CFrameTask>(RequestFrameCallback(std::make_tuple(std::ref(*this), std::move(screenshotPaths), std::move(videoPendingFrames))));
 		std::lock_guard<decltype(mtx)> lck(mtx);
-		taskQueue.emplace(std::move(task));
+		taskQueue.push_back(std::move(task));
 		workerCondition = WorkerCondition::DO_JOB;
 		workerEvent.notify_all();
 	}
@@ -503,7 +529,7 @@ void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width
 
 	auto task = std::make_unique<CStartVideoRecordRequest>(std::move(filename), width, height, config, !videoRecordStarted);
 	std::lock_guard<decltype(mtx)> lck(mtx);
-	taskQueue.push(std::move(task));
+	taskQueue.push_back(std::move(task));
 	workerCondition = WorkerCondition::DO_JOB;
 	workerEvent.notify_all();
 	videoRecordStarted = true;
@@ -513,7 +539,7 @@ void CVideoRecorder::StopRecord()
 {
 	auto task = std::make_unique<CStopVideoRecordRequest>(videoRecordStarted);
 	std::lock_guard<decltype(mtx)> lck(mtx);
-	taskQueue.push(std::move(task));
+	taskQueue.push_back(std::move(task));
 	workerCondition = WorkerCondition::DO_JOB;
 	workerEvent.notify_all();
 	videoRecordStarted = false;

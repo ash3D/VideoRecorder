@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <queue>
+#include <deque>
 #include <memory>
 #include <utility>
 #include <tuple>
@@ -50,7 +51,7 @@ class CVideoRecorder
 	class CFrameTask;
 	class CStartVideoRecordRequest;
 	class CStopVideoRecordRequest;
-	std::queue<std::unique_ptr<ITask>> taskQueue;
+	std::deque<std::unique_ptr<ITask>> taskQueue;
 
 	std::mutex mtx;
 	std::condition_variable workerEvent;
@@ -113,7 +114,7 @@ public:
 		virtual ~CFrame() = default;
 
 	public:
-		void Ready();
+		void Ready(), Cancel();
 
 	public:
 		virtual struct TFrameData
