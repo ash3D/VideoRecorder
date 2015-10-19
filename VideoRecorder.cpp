@@ -489,9 +489,9 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 
 	if (videoPendingFrames || !screenshotPaths.empty())
 	{
-		auto frame = RequestFrameCallback(std::make_tuple(std::ref(*this), std::move(screenshotPaths), std::move(videoPendingFrames)));
+		auto task = std::make_unique<CFrameTask>(RequestFrameCallback(std::make_tuple(std::ref(*this), std::move(screenshotPaths), std::move(videoPendingFrames))));
 		std::lock_guard<decltype(mtx)> lck(mtx);
-		taskQueue.emplace(new CFrameTask(std::move(frame)));
+		taskQueue.emplace(std::move(task));
 		workerCondition = WorkerCondition::DO_JOB;
 		workerEvent.notify_all();
 	}
@@ -501,8 +501,9 @@ void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width
 {
 	nextFrame = clock::now();
 
+	auto task = std::make_unique<CStartVideoRecordRequest>(std::move(filename), width, height, config, !videoRecordStarted);
 	std::lock_guard<decltype(mtx)> lck(mtx);
-	taskQueue.emplace(new CStartVideoRecordRequest(std::move(filename), width, height, config, !videoRecordStarted));
+	taskQueue.push(std::move(task));
 	workerCondition = WorkerCondition::DO_JOB;
 	workerEvent.notify_all();
 	videoRecordStarted = true;
@@ -510,8 +511,9 @@ void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width
 
 void CVideoRecorder::StopRecord()
 {
+	auto task = std::make_unique<CStopVideoRecordRequest>(videoRecordStarted);
 	std::lock_guard<decltype(mtx)> lck(mtx);
-	taskQueue.emplace(new CStopVideoRecordRequest(videoRecordStarted));
+	taskQueue.push(std::move(task));
 	workerCondition = WorkerCondition::DO_JOB;
 	workerEvent.notify_all();
 	videoRecordStarted = false;
