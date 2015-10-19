@@ -452,6 +452,10 @@ CVideoRecorder::~CVideoRecorder()
 {
 	if (videoRecordStarted)
 	{
+		// wait to establish character order for wcerr
+		std::unique_lock<decltype(mtx)> lck(mtx);
+		workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
+
 		wcerr << "Destroying video recorder without stopping current record session." << endl;
 		StopRecord();
 	}
