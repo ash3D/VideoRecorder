@@ -164,6 +164,11 @@ public:
 void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 {
 	const auto srcFrameData = srcFrame->GetFrameData();
+	if (!srcFrameData.pixels)
+	{
+		wcerr << "Invalid frame occured. Skipping it." << endl;
+		return;
+	}
 
 	while (!srcFrame->screenshotPaths.empty())
 	{
