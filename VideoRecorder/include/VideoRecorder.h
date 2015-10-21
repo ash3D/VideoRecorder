@@ -70,12 +70,12 @@ class CVideoRecorder
 		FINISH,
 	} workerCondition = WorkerCondition::WAIT;
 
-	enum class State : uint_least8_t
+	enum class Status : uint_least8_t
 	{
 		OK,
 		RETRY,
 		CLEAN,
-	} state = State::OK;
+	} status = Status::OK;
 
 	bool videoRecordStarted = false;
 
@@ -187,11 +187,11 @@ void CVideoRecorder::StartRecord(String &&filename, unsigned int width, unsigned
 	catch (const std::exception &error)
 	{
 		Error(error, startVideoRecordErrorMsgPrefix, c_str(filename));
-		if (state == State::OK)
+		if (status == Status::OK)
 		{
-			state = State::RETRY;
+			status = Status::RETRY;
 			StartRecord(std::forward<String>(filename), width, height);
-			state = State::OK;
+			status = Status::OK;
 		}
 	}
 }
@@ -211,11 +211,11 @@ void CVideoRecorder::StartRecord(String &&filename, unsigned int width, unsigned
 	catch (const std::exception &error)
 	{
 		Error(error, startVideoRecordErrorMsgPrefix, c_str(filename));
-		if (state == State::OK)
+		if (status == Status::OK)
 		{
-			state = State::RETRY;
+			status = Status::RETRY;
 			StartRecord(std::forward<String>(filename), width, height, performance, crf);
-			state = State::OK;
+			status = Status::OK;
 		}
 	}
 }
@@ -231,11 +231,11 @@ void CVideoRecorder::Screenshot(String &&filename)
 	catch (const std::exception &error)
 	{
 		Error(error, screenshotErrorMsgPrefix, c_str(filename));
-		if (state == State::OK)
+		if (status == Status::OK)
 		{
-			state = State::RETRY;
+			status = Status::RETRY;
 			Screenshot(std::forward<String>(filename));
-			state = State::OK;
+			status = Status::OK;
 		}
 	}
 }

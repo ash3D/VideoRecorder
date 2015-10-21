@@ -105,12 +105,12 @@ void CVideoRecorder::Error(const std::exception &error, const char errorMsgPrefi
 		if (filename)
 			wcerr << '\"' << filename << '\"';
 		wcerr << ": " << error.what() << '.';
-		switch (state)
+		switch (status)
 		{
-		case State::OK:
+		case Status::OK:
 			wcerr << " Try again...";
 			break;
-		case State::CLEAN:
+		case Status::CLEAN:
 			assert(videoFile.good());
 			if (videoFile.is_open())
 			{
@@ -625,11 +625,11 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 		{
 			nextFrame = nextFrameBackup;
 			Error(error, "Fail to sample frame");
-			if (state == State::OK)
+			if (status == Status::OK)
 			{
-				state = State::RETRY;
+				status = Status::RETRY;
 				SampleFrame(RequestFrameCallback);
-				state = State::OK;
+				status = Status::OK;
 			}
 		}
 	}
@@ -665,11 +665,11 @@ void CVideoRecorder::StopRecord()
 	catch (const std::exception &error)
 	{
 		Error(error, "Fail to stop video record");
-		if (state == State::OK)
+		if (status == Status::OK)
 		{
-			state = State::CLEAN;
+			status = Status::CLEAN;
 			StopRecord();
-			state = State::OK;
+			status = Status::OK;
 		}
 	}
 }
