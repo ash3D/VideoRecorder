@@ -10,13 +10,20 @@
 #include <type_traits>
 #include <functional>
 #include <fstream>
+#include <iostream>
 #include <chrono>
 #include <ratio>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <exception>
+#include <system_error>
 #include <cstdint>
 #include <boost/preprocessor/seq/enum.hpp>
+
+#if defined _MSC_VER && _MSC_VER < 1900
+#define noexcept
+#endif
 
 class CVideoRecorder
 {
@@ -55,15 +62,24 @@ class CVideoRecorder
 
 	std::mutex mtx;
 	std::condition_variable workerEvent;
+	std::thread worker;
 	enum class WorkerCondition : uint_least8_t
 	{
 		WAIT,
 		DO_JOB,
 		FINISH,
 	} workerCondition = WorkerCondition::WAIT;
-	std::thread worker;
+
+	enum class State : uint_least8_t
+	{
+		OK,
+		RETRY,
+		CLEAN,
+	} state = State::OK;
 
 	bool videoRecordStarted = false;
+
+	static const/*expr*/ char *const screenshotErrorMsgPrefix, *const startVideoRecordErrorMsgPrefix;
 
 public:
 	enum class EncodePerformance;
@@ -73,8 +89,23 @@ private:
 		int64_t crf;
 		EncodePerformance performance;
 	};
+
+private:
+	template<typename Char>
+	static const Char *c_str(const Char *str) noexcept { return str; }
+	template<typename Char, class CharTraits, class Allocator>
+	static const Char *c_str(const std::basic_string<Char, CharTraits, Allocator> &str) noexcept { return str.c_str(); }
 	static inline const char *EncodePerformance_2_Str(EncodePerformance performance);
+	void KillRecordSession();
+#if defined _MSC_VER && _MSC_VER < 1900
+	__declspec(noreturn)
+#else
+	[[noreturn]]
+#endif
+	void Error(const std::system_error &error);
+	void Error(const std::exception &error, const char errorMsgPrefix[], const wchar_t *filename = nullptr);
 	void StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config);
+	void ScreenshotImpl(std::wstring &&filename);
 	void Process();
 
 public:
@@ -129,26 +160,83 @@ public:
 	void SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::TOpaque)> &RequestFrameCallback);
 	
 	template<typename String>
-	void StartRecord(String &&filename, unsigned int width, unsigned int height)
+	void StartRecord(String &&filename, unsigned int width, unsigned int height);
+
+	template<typename String>
+	void StartRecord(String &&filename, unsigned int width, unsigned int height, EncodePerformance performance, int64_t crf);
+
+	void StopRecord();
+
+	template<typename String>
+	void Screenshot(String &&filename);
+};
+
+#pragma region template
+template<typename String>
+void CVideoRecorder::StartRecord(String &&filename, unsigned int width, unsigned int height)
+{
+	try
 	{
 		const TEncodeConfig config = { -1 };
 		StartRecordImpl(std::wstring(std::forward<String>(filename)), width, height, config);
 	}
+	catch (const std::system_error &error)
+	{
+		Error(error);
+	}
+	catch (const std::exception &error)
+	{
+		Error(error, startVideoRecordErrorMsgPrefix, c_str(filename));
+		if (state == State::OK)
+		{
+			state = State::RETRY;
+			StartRecord(std::forward<String>(filename), width, height);
+			state = State::OK;
+		}
+	}
+}
 
-	template<typename String>
-	void StartRecord(String &&filename, unsigned int width, unsigned int height, EncodePerformance performance, int64_t crf)
+template<typename String>
+void CVideoRecorder::StartRecord(String &&filename, unsigned int width, unsigned int height, EncodePerformance performance, int64_t crf)
+{
+	try
 	{
 		const TEncodeConfig config = { crf, performance };
 		StartRecordImpl(std::wstring(std::forward<String>(filename)), width, height, config);
 	}
-
-	void StopRecord();
-
-	void Screenshot(std::wstring &&filename);
-
-	template<typename String>
-	void Screenshot(String &&filename)
+	catch (const std::system_error &error)
 	{
-		Screenshot(std::wstring(std::forward<String>(filename)));
+		Error(error);
 	}
-};
+	catch (const std::exception &error)
+	{
+		Error(error, startVideoRecordErrorMsgPrefix, c_str(filename));
+		if (state == State::OK)
+		{
+			state = State::RETRY;
+			StartRecord(std::forward<String>(filename), width, height, performance, crf);
+			state = State::OK;
+		}
+	}
+}
+
+template<typename String>
+void CVideoRecorder::Screenshot(String &&filename)
+{
+	try
+	{
+		ScreenshotImpl(std::wstring(std::forward<String>(filename)));
+	}
+	// locks does not happen here => no need to catch 'std::system_error'
+	catch (const std::exception &error)
+	{
+		Error(error, screenshotErrorMsgPrefix, c_str(filename));
+		if (state == State::OK)
+		{
+			state = State::RETRY;
+			Screenshot(std::forward<String>(filename));
+			state = State::OK;
+		}
+	}
+}
+#pragma endregion implementation

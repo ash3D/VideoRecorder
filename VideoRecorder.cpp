@@ -2,9 +2,8 @@
 #include <filesystem>
 #include <algorithm>
 #include <iterator>
-#include <iostream>
-#include <exception>
 #include <new>
+#include <cstdlib>
 #include <cassert>
 #include <cctype>
 #include <boost/preprocessor/stringize.hpp>
@@ -22,9 +21,15 @@ using std::wclog;
 using std::wcerr;
 using std::endl;
 
-static inline void AssertHR(HRESULT hr)
+static inline void AssertHR(HRESULT hr) noexcept
 {
 	assert(SUCCEEDED(hr));
+}
+
+static inline void CheckHR(HRESULT hr)
+{
+	if (FAILED(hr))
+		throw hr;
 }
 
 static const/*expr*/ unsigned int cache_line = 64;	// for common x86 CPUs
@@ -44,6 +49,10 @@ void CVideoRecorder::TFrameDeleter::operator()(AVFrame *frame) const
 	av_frame_free(&frame);
 }
 
+const/*expr*/ char
+	*const CVideoRecorder::screenshotErrorMsgPrefix			= "Fail to save screenshot ",
+	*const CVideoRecorder::startVideoRecordErrorMsgPrefix	= "Fail to start video recotd ";
+
 inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodePerformance performance)
 {
 #	define MAP_ENUM_2_STRING(r, enum, value) \
@@ -57,6 +66,65 @@ inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodePerformance per
 	}
 
 #	undef MAP_ENUM_2_STRING
+}
+
+void CVideoRecorder::KillRecordSession()
+{
+	avcodec_close(context.get());
+	dstFrame.reset();
+
+	videoFile.close();
+	videoFile.clear();
+}
+
+/*
+	NOTE: exceptions related to mutex locks
+		- aren't handled in worker thread which leads to terminate()
+		- calls abort() in main thread
+*/
+
+#if defined _MSC_VER && _MSC_VER < 1900
+__declspec(noreturn)
+#else
+[[noreturn]]
+#endif
+void CVideoRecorder::Error(const std::system_error &error)
+{
+	wcerr << "System error occured: " << error.what() << endl;
+	abort();
+}
+
+void CVideoRecorder::Error(const std::exception &error, const char errorMsgPrefix[], const wchar_t *filename)
+{
+	try
+	{
+		// wait to establish character order for wcerr and to free memory
+		std::unique_lock<decltype(mtx)> lck(mtx);
+		workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
+		wcerr << errorMsgPrefix;
+		if (filename)
+			wcerr << '\"' << filename << '\"';
+		wcerr << ": " << error.what() << '.';
+		switch (state)
+		{
+		case State::OK:
+			wcerr << " Try again...";
+			break;
+		case State::CLEAN:
+			assert(videoFile.good());
+			if (videoFile.is_open())
+			{
+				KillRecordSession();
+				taskQueue.clear();
+			}
+			break;
+		}
+		wcerr << endl;
+	}
+	catch (const std::system_error &error)
+	{
+		Error(error);
+	}
 }
 
 static const/*expr*/ std::underlying_type<DirectX::WICCodecs>::type CODEC_DDS = 0xFFFF0001, CODEC_TGA = 0xFFFF0002;
@@ -98,7 +166,7 @@ struct CVideoRecorder::ITask
 {
 	virtual void operator ()(CVideoRecorder &parent) = 0;
 	virtual operator bool() const { return true; }	// is task ready to handle
-	virtual ~ITask() = default;
+	virtual ~ITask() noexcept = default;
 };
 
 #pragma region CFrameTask
@@ -110,15 +178,15 @@ private:
 	std::shared_ptr<CFrame> srcFrame;
 
 public:
-	CFrameTask(std::shared_ptr<CFrame> &&frame) : srcFrame(std::move(frame)) {}
+	CFrameTask(std::shared_ptr<CFrame> &&frame) noexcept : srcFrame(std::move(frame)) { assert(srcFrame); }
 #if !(defined _MSC_VER && _MSC_VER < 1900)
-	CFrameTask(CFrameTask &&) = default;
+	CFrameTask(CFrameTask &&) noexcept = default;
 #endif
 
 public:
 	void operator ()(CVideoRecorder &parent) override;
 	operator bool() const override { return srcFrame->ready; }
-	~CFrameTask() override = default;
+	~CFrameTask() noexcept override = default;
 };
 #pragma endregion
 
@@ -131,16 +199,16 @@ class CVideoRecorder::CStartVideoRecordRequest final : public ITask
 	const bool matchedStop;
 
 public:
-	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config, bool matchedStop) :
+	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config, bool matchedStop) noexcept :
 		filename(std::move(filename)), width(width), height(height),
 		config(config), matchedStop(matchedStop) {}
 #if !(defined _MSC_VER && _MSC_VER < 1900)
-	CStartVideoRecordRequest(CStartVideoRecordRequest &&) = default;
+	CStartVideoRecordRequest(CStartVideoRecordRequest &&) noexcept = default;
 #endif
 
 public:
 	void operator ()(CVideoRecorder &parent) override;
-	~CStartVideoRecordRequest() override = default;
+	~CStartVideoRecordRequest() noexcept override = default;
 };
 #pragma endregion
 
@@ -150,14 +218,14 @@ class CVideoRecorder::CStopVideoRecordRequest final : public ITask
 	const bool matchedStart;
 
 public:
-	CStopVideoRecordRequest(bool matchedStart) : matchedStart(matchedStart) {}
+	CStopVideoRecordRequest(bool matchedStart) noexcept : matchedStart(matchedStart) {}
 #if !(defined _MSC_VER && _MSC_VER < 1900)
-	CStopVideoRecordRequest(CStopVideoRecordRequest &&) = default;
+	CStopVideoRecordRequest(CStopVideoRecordRequest &&) noexcept = default;
 #endif
 
 public:
 	void operator ()(CVideoRecorder &parent) override;
-	~CStopVideoRecordRequest() override = default;
+	~CStopVideoRecordRequest() noexcept override = default;
 };
 #pragma endregion
 
@@ -176,34 +244,40 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 		using namespace DirectX;
 
-		std::tr2::sys::wpath screenshotPath(srcFrame->screenshotPaths.front());
-		const auto screenshotCodec = GetScreenshotCodec(screenshotPath.extension());
-
-		const Image image =
+		try
 		{
-			srcFrameData.width, srcFrameData.height, DXGI_FORMAT_B8G8R8A8_UNORM,
-			srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(srcFrameData.pixels))
-		};
+			std::tr2::sys::wpath screenshotPath(srcFrame->screenshotPaths.front());
+			const auto screenshotCodec = GetScreenshotCodec(screenshotPath.extension());
 
-		HRESULT hr;
-		switch (screenshotCodec)
-		{
-		case CODEC_DDS:
-			hr = SaveToDDSFile(image, DDS_FLAGS_NONE, srcFrame->screenshotPaths.front().c_str());
-			break;
-		case CODEC_TGA:
-			hr = SaveToTGAFile(image, srcFrame->screenshotPaths.front().c_str());
-			break;
-		default:
-			hr = SaveToWICFile(image, WIC_FLAGS_NONE, GetWICCodec(screenshotCodec), srcFrame->screenshotPaths.front().c_str());
-			break;
-		}
+			const Image image =
+			{
+				srcFrameData.width, srcFrameData.height, DXGI_FORMAT_B8G8R8A8_UNORM,
+				srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(srcFrameData.pixels))
+			};
 
-		AssertHR(hr);
-		if (SUCCEEDED(hr))
+			switch (screenshotCodec)
+			{
+			case CODEC_DDS:
+				CheckHR(SaveToDDSFile(image, DDS_FLAGS_NONE, srcFrame->screenshotPaths.front().c_str()));
+				break;
+			case CODEC_TGA:
+				CheckHR(SaveToTGAFile(image, srcFrame->screenshotPaths.front().c_str()));
+				break;
+			default:
+				CheckHR(SaveToWICFile(image, WIC_FLAGS_NONE, GetWICCodec(screenshotCodec), srcFrame->screenshotPaths.front().c_str()));
+				break;
+			}
+
 			wclog << "Screenshot " << srcFrame->screenshotPaths.front() << " has been saved." << endl;
-		else
-			wcerr << "Fail to save screenshot " << srcFrame->screenshotPaths.front() << " (hr=" << hr << ")." << endl;
+		}
+		catch (HRESULT hr)
+		{
+			wcerr << screenshotErrorMsgPrefix << srcFrame->screenshotPaths.front() << " (hr=" << hr << ")." << endl;
+		}
+		catch (const std::exception &error)
+		{
+			wcerr << screenshotErrorMsgPrefix << srcFrame->screenshotPaths.front() << ": " << error.what() << '.' << endl;
+		}
 
 		srcFrame->screenshotPaths.pop();
 	}
@@ -214,15 +288,6 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		parent.packet->data = NULL;
 		parent.packet->size = 0;
 
-		const auto clean = [this, &parent]
-		{
-			avcodec_close(parent.context.get());
-			parent.dstFrame.reset();
-
-			parent.videoFile.close();
-			parent.videoFile.clear();
-		};
-
 		parent.cvtCtx.reset(sws_getCachedContext(parent.cvtCtx.release(),
 			srcFrameData.width, srcFrameData.height, AV_PIX_FMT_BGRA,
 			parent.context->width, parent.context->height, parent.context->pix_fmt,
@@ -231,7 +296,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		if (!parent.cvtCtx)
 		{
 			wcerr << "Fail to convert frame for video." << endl;
-			clean();
+			parent.KillRecordSession();
 			return;
 		}
 		const int srcStride = srcFrameData.stride;
@@ -245,7 +310,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 			if (result != 0)
 			{
 				wcerr << "Fail to encode frame for video." << endl;
-				clean();
+				parent.KillRecordSession();
 				return;
 			}
 			if (gotPacket)
@@ -261,7 +326,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		if (parent.videoFile.bad())
 		{
 			wcerr << "Fail to write video data to file." << endl;
-			clean();
+			parent.KillRecordSession();
 			return;
 		}
 	}
@@ -392,33 +457,49 @@ CVideoRecorder::CFrame::CFrame(TOpaque opaque) :
 
 void CVideoRecorder::CFrame::Ready()
 {
-	std::lock_guard<decltype(mtx)> lck(parent.mtx);
-	ready = true;
-	parent.workerCondition = WorkerCondition::DO_JOB;
-	parent.workerEvent.notify_all();
+	try
+	{
+		std::lock_guard<decltype(mtx)> lck(parent.mtx);
+		ready = true;
+		parent.workerCondition = WorkerCondition::DO_JOB;
+		parent.workerEvent.notify_all();
+	}
+	catch (const std::system_error &error)
+	{
+		parent.Error(error);
+	}
 }
 
 void CVideoRecorder::CFrame::Cancel()
 {
-	std::lock_guard<decltype(mtx)> lck(parent.mtx);
-	/*
-		remove_if always traverses all the range
-		find_if/erase pair allows to stop traverse after element being removed was found
-	*/
-	const auto pred = [this](decltype(parent.taskQueue)::const_reference task)
+	try
 	{
-		if (const CFrameTask *frameTask = dynamic_cast<const CFrameTask *>(task.get()))
-			return frameTask->srcFrame.get() == this;
-		return false;
-	};
-	const auto taskToDelete = std::find_if(parent.taskQueue.cbegin(), parent.taskQueue.cend(), pred);
-	if (taskToDelete != parent.taskQueue.cend())
-	{
-		parent.taskQueue.erase(taskToDelete);
-		assert(std::find_if(parent.taskQueue.cbegin(), parent.taskQueue.cend(), pred) == parent.taskQueue.cend());
+		std::lock_guard<decltype(mtx)> lck(parent.mtx);
+		/*
+			remove_if always traverses all the range
+			find_if/erase pair allows to stop traverse after element being removed was found
+
+			no exception should be thrown during erase() because std::unique_ptr has noexcept move ctor/assignment
+		*/
+		const auto pred = [this](decltype(parent.taskQueue)::const_reference task)
+		{
+			if (const CFrameTask *frameTask = dynamic_cast<const CFrameTask *>(task.get()))
+				return frameTask->srcFrame.get() == this;
+			return false;
+		};
+		const auto taskToDelete = std::find_if(parent.taskQueue.cbegin(), parent.taskQueue.cend(), pred);
+		if (taskToDelete != parent.taskQueue.cend())
+		{
+			parent.taskQueue.erase(taskToDelete);
+			assert(std::find_if(parent.taskQueue.cbegin(), parent.taskQueue.cend(), pred) == parent.taskQueue.cend());
+		}
+		parent.workerCondition = WorkerCondition::DO_JOB;
+		parent.workerEvent.notify_all();
 	}
-	parent.workerCondition = WorkerCondition::DO_JOB;
-	parent.workerEvent.notify_all();
+	catch (const std::system_error &error)
+	{
+		parent.Error(error);
+	}
 }
 #pragma endregion
 
@@ -481,31 +562,39 @@ CVideoRecorder::CVideoRecorder(CVideoRecorder &&) = default;
 
 CVideoRecorder::~CVideoRecorder()
 {
-	if (videoRecordStarted)
+	try
 	{
-		// wait to establish character order for wcerr
-		std::unique_lock<decltype(mtx)> lck(mtx);
-		workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
+		if (videoRecordStarted)
+		{
+			// wait to establish character order for wcerr
+			std::unique_lock<decltype(mtx)> lck(mtx);
+			workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
 
-		wcerr << "Destroying video recorder without stopping current record session." << endl;
-		StopRecord();
+			wcerr << "Destroying video recorder without stopping current record session." << endl;
+			StopRecord();
+		}
+
+		{
+			std::unique_lock<decltype(mtx)> lck(mtx);
+			workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
+
+			workerCondition = WorkerCondition::FINISH;
+			workerEvent.notify_all();
+		}
+
+		worker.join();
 	}
-
+	catch (const std::system_error &error)
 	{
-		std::unique_lock<decltype(mtx)> lck(mtx);
-		workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
-
-		workerCondition = WorkerCondition::FINISH;
-		workerEvent.notify_all();
+		Error(error);
 	}
-
-	worker.join();
 }
 
 void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::TOpaque)> &RequestFrameCallback)
 {
 	decltype(CFrame::videoPendingFrames) videoPendingFrames = 0;
 
+	const auto nextFrameBackup = nextFrame;
 	if (videoRecordStarted)
 	{
 		const auto now = clock::now();
@@ -520,11 +609,29 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 
 	if (videoPendingFrames || !screenshotPaths.empty())
 	{
-		auto task = std::make_unique<CFrameTask>(RequestFrameCallback(std::make_tuple(std::ref(*this), std::move(screenshotPaths), std::move(videoPendingFrames))));
-		std::lock_guard<decltype(mtx)> lck(mtx);
-		taskQueue.push_back(std::move(task));
-		workerCondition = WorkerCondition::DO_JOB;
-		workerEvent.notify_all();
+		try
+		{
+			auto task = std::make_unique<CFrameTask>(RequestFrameCallback(std::make_tuple(std::ref(*this), std::move(screenshotPaths), std::move(videoPendingFrames))));
+			std::lock_guard<decltype(mtx)> lck(mtx);
+			taskQueue.push_back(std::move(task));
+			workerCondition = WorkerCondition::DO_JOB;
+			workerEvent.notify_all();
+		}
+		catch (const std::system_error &error)
+		{
+			Error(error);
+		}
+		catch (const std::exception &error)
+		{
+			nextFrame = nextFrameBackup;
+			Error(error, "Fail to sample frame");
+			if (state == State::OK)
+			{
+				state = State::RETRY;
+				SampleFrame(RequestFrameCallback);
+				state = State::OK;
+			}
+		}
 	}
 }
 
@@ -542,15 +649,32 @@ void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width
 
 void CVideoRecorder::StopRecord()
 {
-	auto task = std::make_unique<CStopVideoRecordRequest>(videoRecordStarted);
-	std::lock_guard<decltype(mtx)> lck(mtx);
-	taskQueue.push_back(std::move(task));
-	workerCondition = WorkerCondition::DO_JOB;
-	workerEvent.notify_all();
-	videoRecordStarted = false;
+	try
+	{
+		auto task = std::make_unique<CStopVideoRecordRequest>(videoRecordStarted);
+		std::lock_guard<decltype(mtx)> lck(mtx);
+		taskQueue.push_back(std::move(task));
+		workerCondition = WorkerCondition::DO_JOB;
+		workerEvent.notify_all();
+		videoRecordStarted = false;
+	}
+	catch (const std::system_error &error)
+	{
+		Error(error);
+	}
+	catch (const std::exception &error)
+	{
+		Error(error, "Fail to stop video record");
+		if (state == State::OK)
+		{
+			state = State::CLEAN;
+			StopRecord();
+			state = State::OK;
+		}
+	}
 }
 
-void CVideoRecorder::Screenshot(std::wstring &&filename)
+void CVideoRecorder::ScreenshotImpl(std::wstring &&filename)
 {
 	screenshotPaths.push(std::move(filename));
 }
