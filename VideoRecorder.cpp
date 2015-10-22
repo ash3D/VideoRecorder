@@ -49,9 +49,7 @@ void CVideoRecorder::TFrameDeleter::operator()(AVFrame *frame) const
 	av_frame_free(&frame);
 }
 
-const/*expr*/ char
-	*const CVideoRecorder::screenshotErrorMsgPrefix			= "Fail to save screenshot ",
-	*const CVideoRecorder::startVideoRecordErrorMsgPrefix	= "Fail to start video recotd ";
+const/*expr*/ char *const CVideoRecorder::screenshotErrorMsgPrefix = "Fail to save screenshot ";
 
 inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodePerformance performance)
 {
@@ -635,16 +633,17 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 	}
 }
 
-void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config)
+// CStartVideoRecordRequest steals (moves) filename during construction => can not reuse filename during retry => reuse task instead (if it was created successfully)
+void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task)
 {
-	nextFrame = clock::now();
-
-	auto task = std::make_unique<CStartVideoRecordRequest>(std::move(filename), width, height, config, !videoRecordStarted);
+	if (!task)
+		task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, config, !videoRecordStarted));
 	std::lock_guard<decltype(mtx)> lck(mtx);
 	taskQueue.push_back(std::move(task));
 	workerCondition = WorkerCondition::DO_JOB;
 	workerEvent.notify_all();
 	videoRecordStarted = true;
+	nextFrame = clock::now();
 }
 
 void CVideoRecorder::StopRecord()

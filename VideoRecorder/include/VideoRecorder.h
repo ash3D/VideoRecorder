@@ -79,7 +79,7 @@ class CVideoRecorder
 
 	bool videoRecordStarted = false;
 
-	static const/*expr*/ char *const screenshotErrorMsgPrefix, *const startVideoRecordErrorMsgPrefix;
+	static const/*expr*/ char *const screenshotErrorMsgPrefix;
 
 public:
 	enum class EncodePerformance;
@@ -104,7 +104,9 @@ private:
 #endif
 	void Error(const std::system_error &error);
 	void Error(const std::exception &error, const char errorMsgPrefix[], const wchar_t *filename = nullptr);
-	void StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config);
+	template<typename String>
+	void StartRecordImpl(String &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
+	void StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task);
 	void ScreenshotImpl(std::wstring &&filename);
 	void Process();
 
@@ -173,12 +175,12 @@ public:
 
 #pragma region template
 template<typename String>
-void CVideoRecorder::StartRecord(String &&filename, unsigned int width, unsigned int height)
+void CVideoRecorder::StartRecordImpl(String &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task)
 {
+	std::unique_ptr<CStartVideoRecordRequest> task;
 	try
 	{
-		const TEncodeConfig config = { -1 };
-		StartRecordImpl(std::wstring(std::forward<String>(filename)), width, height, config);
+		StartRecordImpl(task ? (std::wstring &&)task->filename : std::wstring(std::forward<String>(filename)), width, height, config, std::move(task));
 	}
 	catch (const std::system_error &error)
 	{
@@ -186,38 +188,26 @@ void CVideoRecorder::StartRecord(String &&filename, unsigned int width, unsigned
 	}
 	catch (const std::exception &error)
 	{
-		Error(error, startVideoRecordErrorMsgPrefix, c_str(filename));
+		Error(error, "Fail to start video record ", c_str(task ? task->filename : filename));
 		if (status == Status::OK)
 		{
 			status = Status::RETRY;
-			StartRecord(std::forward<String>(filename), width, height);
+			StartRecordImpl<>(std::forward<String>(filename), width, height, config, std::move(task));
 			status = Status::OK;
 		}
 	}
 }
 
 template<typename String>
-void CVideoRecorder::StartRecord(String &&filename, unsigned int width, unsigned int height, EncodePerformance performance, int64_t crf)
+inline void CVideoRecorder::StartRecord(String &&filename, unsigned int width, unsigned int height)
 {
-	try
-	{
-		const TEncodeConfig config = { crf, performance };
-		StartRecordImpl(std::wstring(std::forward<String>(filename)), width, height, config);
-	}
-	catch (const std::system_error &error)
-	{
-		Error(error);
-	}
-	catch (const std::exception &error)
-	{
-		Error(error, startVideoRecordErrorMsgPrefix, c_str(filename));
-		if (status == Status::OK)
-		{
-			status = Status::RETRY;
-			StartRecord(std::forward<String>(filename), width, height, performance, crf);
-			status = Status::OK;
-		}
-	}
+	StartRecordImpl(std::forward<String>(filename), width, height, { -1 });
+}
+
+template<typename String>
+inline void CVideoRecorder::StartRecord(String &&filename, unsigned int width, unsigned int height, EncodePerformance performance, int64_t crf)
+{
+	StartRecordImpl(std::forward<String>(filename), width, height, { crf, performance });
 }
 
 template<typename String>
