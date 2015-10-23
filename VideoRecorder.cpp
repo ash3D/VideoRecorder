@@ -547,7 +547,7 @@ CVideoRecorder::CVideoRecorder() try :
 }
 catch (const std::exception &error)
 {
-	std::cerr << "Fail to init video recorder: " << error.what() << '.' << endl;
+	wcerr << "Fail to init video recorder: " << error.what() << '.' << endl;
 }
 
 /*
