@@ -37,13 +37,13 @@ static const/*expr*/ unsigned int cache_line = 64;	// for common x86 CPUs
 #define CODEC_ID AV_CODEC_ID_HEVC
 const AVCodec *const CVideoRecorder::codec = (avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
 
-inline void CVideoRecorder::TContextDeleter::operator()(AVCodecContext *context) const
+inline void CVideoRecorder::ContextDeleter::operator()(AVCodecContext *context) const
 {
 	avcodec_close(context);
 	avcodec_free_context(&context);
 }
 
-void CVideoRecorder::TFrameDeleter::operator()(AVFrame *frame) const
+void CVideoRecorder::FrameDeleter::operator()(AVFrame *frame) const
 {
 	av_freep(frame->data);
 	av_frame_free(&frame);
@@ -51,14 +51,14 @@ void CVideoRecorder::TFrameDeleter::operator()(AVFrame *frame) const
 
 const/*expr*/ char *const CVideoRecorder::screenshotErrorMsgPrefix = "Fail to save screenshot ";
 
-inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodePerformance performance)
+inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodeConfig::Performance performance)
 {
 #	define MAP_ENUM_2_STRING(r, enum, value) \
 		case enum::value:	return BOOST_PP_STRINGIZE(value);
 
 	switch (performance)
 	{
-		BOOST_PP_SEQ_FOR_EACH(MAP_ENUM_2_STRING, EncodePerformance, ENCODE_PERFORMANCE_VALUES)
+		BOOST_PP_SEQ_FOR_EACH(MAP_ENUM_2_STRING, EncodeConfig::Performance, ENCODE_PERFORMANCE_VALUES)
 	default:
 		throw "Invalid encode performance value.";
 	}
@@ -92,7 +92,7 @@ void CVideoRecorder::Error(const std::system_error &error)
 	abort();
 }
 
-void CVideoRecorder::Error(const std::exception &error, const char errorMsgPrefix[], const wchar_t *filename)
+void CVideoRecorder::Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename)
 {
 	try
 	{
@@ -184,7 +184,6 @@ public:
 public:
 	void operator ()(CVideoRecorder &parent) override;
 	operator bool() const override { return srcFrame->ready; }
-	~CFrameTask() noexcept override = default;
 };
 #pragma endregion
 
@@ -193,11 +192,14 @@ class CVideoRecorder::CStartVideoRecordRequest final : public ITask
 {
 	const std::wstring filename;
 	const unsigned int width, height;
-	const TEncodeConfig config;
+	const EncodeConfig config;
 	const bool matchedStop;
 
 public:
-	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config, bool matchedStop) noexcept :
+	const std::wstring &GetFilename() const noexcept { return filename; }
+
+public:
+	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, const EncodeConfig &config, bool matchedStop) noexcept :
 		filename(std::move(filename)), width(width), height(height),
 		config(config), matchedStop(matchedStop) {}
 #if !(defined _MSC_VER && _MSC_VER < 1900)
@@ -206,7 +208,6 @@ public:
 
 public:
 	void operator ()(CVideoRecorder &parent) override;
-	~CStartVideoRecordRequest() noexcept override = default;
 };
 #pragma endregion
 
@@ -223,7 +224,6 @@ public:
 
 public:
 	void operator ()(CVideoRecorder &parent) override;
-	~CStopVideoRecordRequest() noexcept override = default;
 };
 #pragma endregion
 
@@ -447,7 +447,7 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 #pragma endregion
 
 #pragma region CFrame
-CVideoRecorder::CFrame::CFrame(TOpaque opaque) :
+CVideoRecorder::CFrame::CFrame(Opaque opaque) :
 	parent				(std::get<0>(std::move(opaque))),
 	screenshotPaths		(std::get<1>(std::move(opaque))),
 	videoPendingFrames	(std::get<2>(std::move(opaque)))
@@ -588,7 +588,7 @@ CVideoRecorder::~CVideoRecorder()
 	}
 }
 
-void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::TOpaque)> &RequestFrameCallback)
+void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::Opaque)> &RequestFrameCallback)
 {
 	decltype(CFrame::videoPendingFrames) videoPendingFrames = 0;
 
@@ -599,7 +599,7 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 		if (now >= nextFrame)
 		{
 			using std::chrono::duration_cast;
-			const auto delta = duration_cast<TFrameDuration>(now - nextFrame) + TFrameDuration(1u);
+			const auto delta = duration_cast<FrameDuration>(now - nextFrame) + FrameDuration(1u);
 			nextFrame += duration_cast<clock::duration>(delta);
 			videoPendingFrames = delta.count();
 		}
@@ -634,16 +634,38 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 }
 
 // CStartVideoRecordRequest steals (moves) filename during construction => can not reuse filename during retry => reuse task instead (if it was created successfully)
-void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, const TEncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task)
+void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, const EncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task)
 {
-	if (!task)
-		task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, config, !videoRecordStarted));
-	std::lock_guard<decltype(mtx)> lck(mtx);
-	taskQueue.push_back(std::move(task));
-	workerCondition = WorkerCondition::DO_JOB;
-	workerEvent.notify_all();
-	videoRecordStarted = true;
-	nextFrame = clock::now();
+	try
+	{
+		if (!task)
+			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, config, !videoRecordStarted));
+		std::lock_guard<decltype(mtx)> lck(mtx);
+		taskQueue.push_back(std::move(task));
+		workerCondition = WorkerCondition::DO_JOB;
+		workerEvent.notify_all();
+		videoRecordStarted = true;
+		nextFrame = clock::now();
+	}
+	catch (const std::system_error &error)
+	{
+		Error(error);
+	}
+	catch (const std::exception &error)
+	{
+		Error(error, "Fail to start video record ", &(task ? task->GetFilename() : filename));
+		if (status == Status::OK)
+		{
+			status = Status::RETRY;
+			StartRecordImpl(std::move(filename), width, height, config, std::move(task));
+			status = Status::OK;
+		}
+	}
+}
+
+void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, const EncodeConfig &config)
+{
+	StartRecordImpl(std::move(filename), width, height, config);
 }
 
 void CVideoRecorder::StopRecord()
@@ -673,7 +695,21 @@ void CVideoRecorder::StopRecord()
 	}
 }
 
-void CVideoRecorder::ScreenshotImpl(std::wstring &&filename)
+void CVideoRecorder::Screenshot(std::wstring filename)
 {
-	screenshotPaths.push(std::move(filename));
+	try
+	{
+		screenshotPaths.push(std::move(filename));
+	}
+	// locks does not happen here => no need to catch 'std::system_error'
+	catch (const std::exception &error)
+	{
+		Error(error, screenshotErrorMsgPrefix, &filename);
+		if (status == Status::OK)
+		{
+			status = Status::RETRY;
+			Screenshot(std::move(filename));
+			status = Status::OK;
+		}
+	}
 }
