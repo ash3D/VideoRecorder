@@ -208,15 +208,16 @@ class CVideoRecorder::CStartVideoRecordRequest final : public ITask
 	const std::wstring filename;
 	const unsigned int width, height;
 	const EncodeConfig config;
+	const bool _10bit;
 	const bool matchedStop;
 
 public:
 	const std::wstring &GetFilename() const noexcept { return filename; }
 
 public:
-	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, const EncodeConfig &config, bool matchedStop) noexcept :
+	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, bool _10bit, const EncodeConfig &config, bool matchedStop) noexcept :
 		filename(std::move(filename)), width(width), height(height),
-		config(config), matchedStop(matchedStop) {}
+		_10bit(_10bit), config(config), matchedStop(matchedStop) {}
 #if !(defined _MSC_VER && _MSC_VER < 1900)
 	CStartVideoRecordRequest(CStartVideoRecordRequest &&) noexcept = default;
 #endif
@@ -302,7 +303,8 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		parent.packet->data = NULL;
 		parent.packet->size = 0;
 
-		ScratchImage dstImage;
+		AVPixelFormat srcVideoFormat = AV_PIX_FMT_BGRA;
+		ScratchImage convertedImage;
 		switch (srcFrameData.format)
 		{
 		case FrameFormat::R10G10B10A2:
@@ -312,14 +314,15 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 				srcFrameData.width, srcFrameData.height, GetDXGIFormat(srcFrameData.format),
 				srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(srcFrameData.pixels))
 			};
-			const HRESULT hr = Convert(srcImage, DXGI_FORMAT_B8G8R8A8_UNORM, TEX_FILTER_DEFAULT, .5f, dstImage);
+			const auto intermediateDXFormat = parent.context->pix_fmt == AV_PIX_FMT_YUV420P10 ? (srcVideoFormat = AV_PIX_FMT_RGBA64, DXGI_FORMAT_R16G16B16A16_UNORM) : DXGI_FORMAT_B8G8R8A8_UNORM;
+			const HRESULT hr = Convert(srcImage, intermediateDXFormat, TEX_FILTER_DEFAULT, .5f, convertedImage);
 			if (FAILED(hr))
 			{
 				wcerr << convertErrorMsgPrefix << " (hr=" << hr << ")." << endl;
 				parent.KillRecordSession();
 				return;
 			}
-			const auto resultImage = dstImage.GetImage(0, 0, 0);
+			const auto resultImage = convertedImage.GetImage(0, 0, 0);
 			srcFrameData.stride = resultImage->rowPitch;
 			srcFrameData.pixels = resultImage->pixels;
 			break;
@@ -327,7 +330,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		}
 
 		parent.cvtCtx.reset(sws_getCachedContext(parent.cvtCtx.release(),
-			srcFrameData.width, srcFrameData.height, AV_PIX_FMT_BGRA,
+			srcFrameData.width, srcFrameData.height, srcVideoFormat,
 			parent.context->width, parent.context->height, parent.context->pix_fmt,
 			SWS_BILINEAR, NULL, NULL, NULL));
 		assert(parent.cvtCtx);
@@ -339,6 +342,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		}
 		const int srcStride = srcFrameData.stride;
 		sws_scale(parent.cvtCtx.get(), reinterpret_cast<const uint8_t *const*>(&srcFrameData.pixels), &srcStride, 0, srcFrameData.height, parent.dstFrame->data, parent.dstFrame->linesize);
+		convertedImage.Release();
 
 		do
 		{
@@ -419,7 +423,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	}
 
 	parent.dstFrame.reset(av_frame_alloc());
-	parent.dstFrame->format = AV_PIX_FMT_YUV420P;
+	parent.dstFrame->format = _10bit ? AV_PIX_FMT_YUV420P10 : AV_PIX_FMT_YUV420P;
 	parent.dstFrame->width = parent.context->width;
 	parent.dstFrame->height = parent.context->height;
 	{
@@ -674,12 +678,12 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 }
 
 // CStartVideoRecordRequest steals (moves) filename during construction => can not reuse filename during retry => reuse task instead (if it was created successfully)
-void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, const EncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task)
+void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, const EncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task)
 {
 	try
 	{
 		if (!task)
-			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, config, !videoRecordStarted));
+			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, _10bit, config, !videoRecordStarted));
 		std::lock_guard<decltype(mtx)> lck(mtx);
 		taskQueue.push_back(std::move(task));
 		workerCondition = WorkerCondition::DO_JOB;
@@ -697,15 +701,15 @@ void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, 
 		if (status == Status::OK)
 		{
 			status = Status::RETRY;
-			StartRecordImpl(std::move(filename), width, height, config, std::move(task));
+			StartRecordImpl(std::move(filename), width, height, _10bit, config, std::move(task));
 			status = Status::OK;
 		}
 	}
 }
 
-void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, const EncodeConfig &config)
+void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, const EncodeConfig &config)
 {
-	StartRecordImpl(std::move(filename), width, height, config);
+	StartRecordImpl(std::move(filename), width, height, _10bit, config);
 }
 
 void CVideoRecorder::StopRecord()

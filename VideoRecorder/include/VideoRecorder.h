@@ -100,7 +100,7 @@ private:
 #endif
 	void Error(const std::system_error &error);
 	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);
-	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, const EncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
+	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, const EncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
 	void Process();
 
 public:
@@ -152,7 +152,7 @@ public:
 
 public:
 	void SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::Opaque)> &RequestFrameCallback);
-	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, const EncodeConfig &config = { -1 });
+	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit/*8 if false*/, const EncodeConfig &config = { -1 });
 	void StopRecord();
 	void Screenshot(std::wstring filename);
 };
