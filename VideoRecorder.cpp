@@ -21,6 +21,11 @@ using std::wclog;
 using std::wcerr;
 using std::endl;
 
+static const/*expr*/ unsigned int cache_line = 64;	// for common x86 CPUs
+static const/*expr*/ char *const screenshotErrorMsgPrefix = "Fail to save screenshot ";
+
+typedef CVideoRecorder::CFrame::FrameData::Format FrameFormat;
+
 static inline void AssertHR(HRESULT hr) noexcept
 {
 	assert(SUCCEEDED(hr));
@@ -32,7 +37,19 @@ static inline void CheckHR(HRESULT hr)
 		throw hr;
 }
 
-static const/*expr*/ unsigned int cache_line = 64;	// for common x86 CPUs
+static inline DXGI_FORMAT GetDXGIFormat(CVideoRecorder::CFrame::FrameData::Format format)
+{
+	switch (format)
+	{
+	case FrameFormat::B8G8R8A8:
+		return DXGI_FORMAT_B8G8R8A8_UNORM;
+	case FrameFormat::R10G10B10A2:
+		return DXGI_FORMAT_R10G10B10A2_UNORM;
+	default:
+		assert(false);
+		__assume(false);
+	}
+}
 
 #define CODEC_ID AV_CODEC_ID_HEVC
 const AVCodec *const CVideoRecorder::codec = (avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
@@ -48,8 +65,6 @@ void CVideoRecorder::FrameDeleter::operator()(AVFrame *frame) const
 	av_freep(frame->data);
 	av_frame_free(&frame);
 }
-
-const/*expr*/ char *const CVideoRecorder::screenshotErrorMsgPrefix = "Fail to save screenshot ";
 
 inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodeConfig::Performance performance)
 {
@@ -229,7 +244,9 @@ public:
 
 void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 {
-	const auto srcFrameData = srcFrame->GetFrameData();
+	using namespace DirectX;
+
+	auto srcFrameData = srcFrame->GetFrameData();
 	if (!srcFrameData.pixels)
 	{
 		wcerr << "Invalid frame occured. Skipping it." << endl;
@@ -240,8 +257,6 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 	{
 		wclog << "Saving screenshot " << srcFrame->screenshotPaths.front() << "..." << endl;
 
-		using namespace DirectX;
-
 		try
 		{
 			std::tr2::sys::wpath screenshotPath(srcFrame->screenshotPaths.front());
@@ -249,7 +264,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 			const Image image =
 			{
-				srcFrameData.width, srcFrameData.height, DXGI_FORMAT_B8G8R8A8_UNORM,
+				srcFrameData.width, srcFrameData.height, GetDXGIFormat(srcFrameData.format),
 				srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(srcFrameData.pixels))
 			};
 
@@ -282,9 +297,34 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 	if (srcFrame->videoPendingFrames && (assert(parent.videoFile.good()), parent.videoFile.is_open()))
 	{
+		static const/*expr*/ char convertErrorMsgPrefix[] = "Fail to convert frame for video";
 		av_init_packet(parent.packet.get());
 		parent.packet->data = NULL;
 		parent.packet->size = 0;
+
+		ScratchImage dstImage;
+		switch (srcFrameData.format)
+		{
+		case FrameFormat::R10G10B10A2:
+		{
+			const Image srcImage =
+			{
+				srcFrameData.width, srcFrameData.height, GetDXGIFormat(srcFrameData.format),
+				srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(srcFrameData.pixels))
+			};
+			const HRESULT hr = Convert(srcImage, DXGI_FORMAT_B8G8R8A8_UNORM, TEX_FILTER_DEFAULT, .5f, dstImage);
+			if (FAILED(hr))
+			{
+				wcerr << convertErrorMsgPrefix << " (hr=" << hr << ")." << endl;
+				parent.KillRecordSession();
+				return;
+			}
+			const auto resultImage = dstImage.GetImage(0, 0, 0);
+			srcFrameData.stride = resultImage->rowPitch;
+			srcFrameData.pixels = resultImage->pixels;
+			break;
+		}
+		}
 
 		parent.cvtCtx.reset(sws_getCachedContext(parent.cvtCtx.release(),
 			srcFrameData.width, srcFrameData.height, AV_PIX_FMT_BGRA,
@@ -293,7 +333,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		assert(parent.cvtCtx);
 		if (!parent.cvtCtx)
 		{
-			wcerr << "Fail to convert frame for video." << endl;
+			wcerr << convertErrorMsgPrefix << '.' << endl;
 			parent.KillRecordSession();
 			return;
 		}

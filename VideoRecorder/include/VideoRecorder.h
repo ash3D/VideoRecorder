@@ -79,8 +79,6 @@ class CVideoRecorder
 
 	bool videoRecordStarted = false;
 
-	static const/*expr*/ char *const screenshotErrorMsgPrefix;
-
 public:
 #	define ENCODE_PERFORMANCE_VALUES (placebo)(veryslow)(slower)(slow)(medium)(fast)(faster)(veryfast)(superfast)(ultrafast)
 	struct EncodeConfig
@@ -139,8 +137,13 @@ public:
 		void Ready(), Cancel();
 
 	public:
-		virtual struct TFrameData
+		virtual struct FrameData
 		{
+			enum class Format
+			{
+				B8G8R8A8,
+				R10G10B10A2,
+			} format;
 			unsigned int width, height;
 			size_t stride;
 			const void *pixels;
