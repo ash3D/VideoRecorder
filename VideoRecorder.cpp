@@ -442,7 +442,8 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	using std::ios_base;
 	parent.videoFile.open(filename, ios_base::out | ios_base::binary);
 	assert(parent.videoFile.good());
-	if (parent.videoFile.bad())
+	assert(parent.videoFile.is_open());
+	if (parent.videoFile.bad() || !parent.videoFile.is_open())
 	{
 		std::wcerr << "Fail to create video file " << filename << '.' << endl;
 		avcodec_close(parent.context.get());
