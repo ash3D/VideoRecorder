@@ -27,7 +27,6 @@
 
 class CVideoRecorder
 {
-	static const/*expr*/ unsigned int fps = 30;
 	static const struct AVCodec *const codec;
 
 	struct ContextDeleter
@@ -47,7 +46,8 @@ class CVideoRecorder
 	std::unique_ptr<struct AVFrame, FrameDeleter> dstFrame;
 
 	typedef std::chrono::steady_clock clock;
-	typedef std::chrono::duration<clock::rep, std::ratio<1, fps>> FrameDuration;
+	template<unsigned int FPS>
+	using FrameDuration = std::chrono::duration<clock::rep, std::ratio<1, FPS>>;
 	clock::time_point nextFrame;
 
 	std::ofstream videoFile;
@@ -77,7 +77,12 @@ class CVideoRecorder
 		CLEAN,
 	} status = Status::OK;
 
-	bool videoRecordStarted = false;
+	enum class RecordMode
+	{
+		STOPPED,
+		LOW_FPS,
+		HIGH_FPS,
+	} recordMode = RecordMode::STOPPED;
 
 public:
 #	define ENCODE_PERFORMANCE_VALUES (placebo)(veryslow)(slower)(slow)(medium)(fast)(faster)(veryfast)(superfast)(ultrafast)
@@ -90,30 +95,6 @@ public:
 		} performance;
 	};
 
-private:
-	static inline const char *EncodePerformance_2_Str(EncodeConfig::Performance performance);
-	void KillRecordSession();
-#if defined _MSC_VER && _MSC_VER < 1900
-	__declspec(noreturn)
-#else
-	[[noreturn]]
-#endif
-	void Error(const std::system_error &error);
-	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);
-	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, const EncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
-	void Process();
-
-public:
-	CVideoRecorder();
-#if defined _MSC_VER && _MSC_VER < 1900
-	CVideoRecorder(CVideoRecorder &) = delete;
-	void operator =(CVideoRecorder &) = delete;
-#else
-	CVideoRecorder(CVideoRecorder &&);
-#endif
-	~CVideoRecorder();
-
-public:
 	class CFrame
 	{
 		friend class CVideoRecorder;
@@ -121,7 +102,7 @@ public:
 	private:
 		CVideoRecorder &parent;
 		decltype(screenshotPaths) screenshotPaths;
-		std::conditional<std::is_floating_point<FrameDuration::rep>::value, uintmax_t, FrameDuration::rep>::type videoPendingFrames;
+		std::conditional<std::is_floating_point<clock::rep>::value, uintmax_t, clock::rep>::type videoPendingFrames;
 		bool ready = false;
 
 	public:
@@ -150,9 +131,34 @@ public:
 		} GetFrameData() const = 0;
 	};
 
+private:
+	static inline const char *EncodePerformance_2_Str(EncodeConfig::Performance performance);
+	void KillRecordSession();
+#if defined _MSC_VER && _MSC_VER < 1900
+	__declspec(noreturn)
+#else
+	[[noreturn]]
+#endif
+	void Error(const std::system_error &error);
+	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);
+	template<unsigned int FPS>
+	inline void AdvanceFrame(clock::time_point now, decltype(CFrame::videoPendingFrames) &videoPendingFrames);
+	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, const EncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
+	void Process();
+
+public:
+	CVideoRecorder();
+#if defined _MSC_VER && _MSC_VER < 1900
+	CVideoRecorder(CVideoRecorder &) = delete;
+	void operator =(CVideoRecorder &) = delete;
+#else
+	CVideoRecorder(CVideoRecorder &&);
+#endif
+	~CVideoRecorder();
+
 public:
 	void SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::Opaque)> &RequestFrameCallback);
-	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit/*8 if false*/, const EncodeConfig &config = { -1 });
+	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit/*8 if false*/, bool highFPS/*60 if true, 30 if false*/, const EncodeConfig &config = { -1 });
 	void StopRecord();
 	void Screenshot(std::wstring filename);
 };
