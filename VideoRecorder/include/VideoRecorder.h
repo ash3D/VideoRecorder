@@ -27,7 +27,7 @@
 
 class CVideoRecorder
 {
-	static const/*expr*/ unsigned int fps = 25;
+	static const/*expr*/ unsigned int fps = 30;
 	static const struct AVCodec *const codec;
 
 	struct ContextDeleter
