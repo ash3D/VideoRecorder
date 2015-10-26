@@ -22,7 +22,7 @@ using std::wcerr;
 using std::endl;
 
 static const/*expr*/ unsigned int cache_line = 64;	// for common x86 CPUs
-static const/*expr*/ char *const screenshotErrorMsgPrefix = "Fail to save screenshot ";
+static const/*expr*/ char *const screenshotErrorMsgPrefix = "Fail to save screenshot \"";
 static const/*expr*/ unsigned int lowFPS = 30, highFPS = 60;
 
 typedef CVideoRecorder::CFrame::FrameData::Format FrameFormat;
@@ -257,7 +257,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 	while (!srcFrame->screenshotPaths.empty())
 	{
-		wclog << "Saving screenshot " << srcFrame->screenshotPaths.front() << "..." << endl;
+		wclog << "Saving screenshot \"" << srcFrame->screenshotPaths.front() << "\"..." << endl;
 
 		try
 		{
@@ -283,11 +283,11 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 				break;
 			}
 
-			wclog << "Screenshot " << srcFrame->screenshotPaths.front() << " has been saved." << endl;
+			wclog << "Screenshot \"" << srcFrame->screenshotPaths.front() << "\" has been saved." << endl;
 		}
 		catch (HRESULT hr)
 		{
-			wcerr << screenshotErrorMsgPrefix << srcFrame->screenshotPaths.front() << " (hr=" << hr << ")." << endl;
+			wcerr << screenshotErrorMsgPrefix << srcFrame->screenshotPaths.front() << "\" (hr=" << hr << ")." << endl;
 		}
 		catch (const std::exception &error)
 		{
@@ -411,14 +411,14 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	}
 #endif
 
-	wclog << "Recording video " << filename << " (using " << parent.context->thread_count << " threads for encoding)..." << endl;
+	wclog << "Recording video \"" << filename << "\" (using " << parent.context->thread_count << " threads for encoding)..." << endl;
 
 	{
 		const auto result = avcodec_open2(parent.context.get(), codec, NULL);
 		assert(result == 0);
 		if (result != 0)
 		{
-			wcerr << "Fail to open codec for video " << filename << '.' << endl;
+			wcerr << "Fail to open codec for video \"" << filename << "\"." << endl;
 			return;
 		}
 	}
@@ -432,7 +432,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		assert(result >= 0);
 		if (result < 0)
 		{
-			wcerr << "Fail to allocate frame for video " << filename << '.' << endl;
+			wcerr << "Fail to allocate frame for video \"" << filename << "\"." << endl;
 			avcodec_close(parent.context.get());
 			return;
 		}
@@ -445,7 +445,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	assert(parent.videoFile.is_open());
 	if (parent.videoFile.bad() || !parent.videoFile.is_open())
 	{
-		std::wcerr << "Fail to create video file " << filename << '.' << endl;
+		std::wcerr << "Fail to create video file \"" << filename << "\"." << endl;
 		avcodec_close(parent.context.get());
 		parent.dstFrame.reset();
 		parent.videoFile.clear();
