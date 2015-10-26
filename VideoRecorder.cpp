@@ -392,7 +392,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	parent.context->width = width & ~1;
 	parent.context->height = height & ~1;
 	parent.context->time_base = { 1, highFPS ? ::highFPS : ::lowFPS };
-	parent.context->pix_fmt = AV_PIX_FMT_YUV420P;
+	parent.context->pix_fmt = _10bit ? AV_PIX_FMT_YUV420P10 : AV_PIX_FMT_YUV420P;
 	if (const auto availableThreads = std::thread::hardware_concurrency())
 		parent.context->thread_count = availableThreads;	// TODO: consider reserving 1 or more threads for other stuff
 #if CODEC_ID == AV_CODEC_ID_H264 || CODEC_ID == AV_CODEC_ID_HEVC
@@ -424,7 +424,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	}
 
 	parent.dstFrame.reset(av_frame_alloc());
-	parent.dstFrame->format = _10bit ? AV_PIX_FMT_YUV420P10 : AV_PIX_FMT_YUV420P;
+	parent.dstFrame->format = parent.context->pix_fmt;
 	parent.dstFrame->width = parent.context->width;
 	parent.dstFrame->height = parent.context->height;
 	{
