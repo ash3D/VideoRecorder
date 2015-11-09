@@ -118,7 +118,7 @@ public:
 		void Ready(), Cancel();
 
 	public:
-		virtual struct FrameData
+		struct FrameData
 		{
 			enum class Format
 			{
@@ -128,7 +128,9 @@ public:
 			unsigned int width, height;
 			size_t stride;
 			const void *pixels;
-		} GetFrameData() const = 0;
+		};
+		
+		virtual FrameData GetFrameData() const = 0;
 	};
 
 private:
