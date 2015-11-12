@@ -21,9 +21,9 @@ using std::wclog;
 using std::wcerr;
 using std::endl;
 
-static const/*expr*/ unsigned int cache_line = 64;	// for common x86 CPUs
-static const/*expr*/ char *const screenshotErrorMsgPrefix = "Fail to save screenshot \"";
-static const/*expr*/ unsigned int lowFPS = 30, highFPS = 60;
+static constexpr unsigned int cache_line = 64;	// for common x86 CPUs
+static constexpr char *const screenshotErrorMsgPrefix = "Fail to save screenshot \"";
+static constexpr unsigned int lowFPS = 30, highFPS = 60;
 
 typedef CVideoRecorder::CFrame::FrameData::Format FrameFormat;
 
@@ -97,11 +97,7 @@ void CVideoRecorder::KillRecordSession()
 		- calls abort() in main thread
 */
 
-#if defined _MSC_VER && _MSC_VER < 1900
-__declspec(noreturn)
-#else
 [[noreturn]]
-#endif
 void CVideoRecorder::Error(const std::system_error &error)
 {
 	wcerr << "System error occured: " << error.what() << endl;
@@ -141,8 +137,8 @@ void CVideoRecorder::Error(const std::exception &error, const char errorMsgPrefi
 	}
 }
 
-static const/*expr*/ std::underlying_type<DirectX::WICCodecs>::type CODEC_DDS = 0xFFFF0001, CODEC_TGA = 0xFFFF0002;
-static const/*expr*/ std::pair<const wchar_t *, DirectX::WICCodecs> pictureFormats[] =
+static constexpr std::underlying_type<DirectX::WICCodecs>::type CODEC_DDS = 0xFFFF0001, CODEC_TGA = 0xFFFF0002;
+static constexpr std::pair<const wchar_t *, DirectX::WICCodecs> pictureFormats[] =
 {
 	{ L".bmp",	DirectX::WIC_CODEC_BMP			},
 	{ L".jpg",	DirectX::WIC_CODEC_JPEG			},
@@ -193,9 +189,7 @@ private:
 
 public:
 	CFrameTask(std::shared_ptr<CFrame> &&frame) noexcept : srcFrame(std::move(frame)) { assert(srcFrame); }
-#if !(defined _MSC_VER && _MSC_VER < 1900)
 	CFrameTask(CFrameTask &&) noexcept = default;
-#endif
 
 public:
 	void operator ()(CVideoRecorder &parent) override;
@@ -219,9 +213,7 @@ public:
 	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, const EncodeConfig &config, bool matchedStop) noexcept :
 		filename(std::move(filename)), width(width), height(height),
 		_10bit(_10bit), highFPS(highFPS), config(config), matchedStop(matchedStop) {}
-#if !(defined _MSC_VER && _MSC_VER < 1900)
 	CStartVideoRecordRequest(CStartVideoRecordRequest &&) noexcept = default;
-#endif
 
 public:
 	void operator ()(CVideoRecorder &parent) override;
@@ -235,9 +227,7 @@ class CVideoRecorder::CStopVideoRecordRequest final : public ITask
 
 public:
 	CStopVideoRecordRequest(bool matchedStart) noexcept : matchedStart(matchedStart) {}
-#if !(defined _MSC_VER && _MSC_VER < 1900)
 	CStopVideoRecordRequest(CStopVideoRecordRequest &&) noexcept = default;
-#endif
 
 public:
 	void operator ()(CVideoRecorder &parent) override;
@@ -261,7 +251,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 		try
 		{
-			std::tr2::sys::wpath screenshotPath(srcFrame->screenshotPaths.front());
+			std::tr2::sys::path screenshotPath(srcFrame->screenshotPaths.front());
 			const auto screenshotCodec = GetScreenshotCodec(screenshotPath.extension());
 
 			const Image image =
@@ -299,7 +289,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 	if (srcFrame->videoPendingFrames && (assert(parent.videoFile.good()), parent.videoFile.is_open()))
 	{
-		static const/*expr*/ char convertErrorMsgPrefix[] = "Fail to convert frame for video";
+		static constexpr char convertErrorMsgPrefix[] = "Fail to convert frame for video";
 		av_init_packet(parent.packet.get());
 		parent.packet->data = NULL;
 		parent.packet->size = 0;
@@ -600,7 +590,7 @@ catch (const std::exception &error)
 	make it external in order to allow for forward decl for std::unique_ptr
 	declaring move ctor also disables copy ctor/assignment which is desired
 */
-#if !(defined _MSC_VER && _MSC_VER < 1900)
+#if 0
 CVideoRecorder::CVideoRecorder(CVideoRecorder &&) = default;
 #endif
 

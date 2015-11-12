@@ -21,10 +21,6 @@
 #include <cstdint>
 #include <boost/preprocessor/seq/enum.hpp>
 
-#if defined _MSC_VER && _MSC_VER < 1900
-#define noexcept
-#endif
-
 class CVideoRecorder
 {
 	static const struct AVCodec *const codec;
@@ -136,11 +132,7 @@ public:
 private:
 	static inline const char *EncodePerformance_2_Str(EncodeConfig::Performance performance);
 	void KillRecordSession();
-#if defined _MSC_VER && _MSC_VER < 1900
-	__declspec(noreturn)
-#else
 	[[noreturn]]
-#endif
 	void Error(const std::system_error &error);
 	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);
 	template<unsigned int FPS>
@@ -150,7 +142,7 @@ private:
 
 public:
 	CVideoRecorder();
-#if defined _MSC_VER && _MSC_VER < 1900
+#if 1
 	CVideoRecorder(CVideoRecorder &) = delete;
 	void operator =(CVideoRecorder &) = delete;
 #else
