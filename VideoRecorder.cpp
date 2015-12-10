@@ -381,6 +381,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 
 	parent.context->width = width & ~1;
 	parent.context->height = height & ~1;
+	parent.context->coded_width = parent.context->coded_height = 0;
 	parent.context->time_base = { 1, highFPS ? ::highFPS : ::lowFPS };
 	parent.context->pix_fmt = AV_PIX_FMT_YUV420P;
 	if (const auto availableThreads = std::thread::hardware_concurrency())
