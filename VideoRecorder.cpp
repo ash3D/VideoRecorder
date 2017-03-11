@@ -1,3 +1,4 @@
+#define VIDEO_RECORDER_IMPLEMENTATION
 #include "VideoRecorder/include/VideoRecorder.h"
 #include <filesystem>
 #include <algorithm>
@@ -6,8 +7,6 @@
 #include <cstdlib>
 #include <cassert>
 #include <cctype>
-#include <boost/preprocessor/stringize.hpp>
-#include <boost/preprocessor/seq/for_each.hpp>
 extern "C"
 {
 #	include <libavcodec/avcodec.h>
@@ -69,17 +68,17 @@ void CVideoRecorder::FrameDeleter::operator()(AVFrame *frame) const
 
 inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodeConfig::Performance performance)
 {
-#	define MAP_ENUM_2_STRING(r, enum, value) \
-		case enum::value:	return BOOST_PP_STRINGIZE(value);
+#	define ENCOE_PERFORMANCE_MAP_ENUM_2_STRING(entry)	\
+		case EncodeConfig::Performance::entry:	return #entry;
 
 	switch (performance)
 	{
-		BOOST_PP_SEQ_FOR_EACH(MAP_ENUM_2_STRING, EncodeConfig::Performance, ENCODE_PERFORMANCE_VALUES)
+		GENERATE_ENCOE_PERFORMANCE_MODES(ENCOE_PERFORMANCE_MAP_ENUM_2_STRING)
 	default:
 		throw "Invalid encode performance value.";
 	}
 
-#	undef MAP_ENUM_2_STRING
+#	undef ENCOE_PERFORMANCE_MAP_ENUM_2_STRING
 }
 
 void CVideoRecorder::KillRecordSession()

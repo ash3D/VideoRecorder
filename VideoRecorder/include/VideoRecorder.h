@@ -19,7 +19,6 @@
 #include <exception>
 #include <system_error>
 #include <cstdint>
-#include <boost/preprocessor/seq/enum.hpp>
 
 class CVideoRecorder
 {
@@ -81,15 +80,32 @@ class CVideoRecorder
 	} recordMode = RecordMode::STOPPED;
 
 public:
-#	define ENCODE_PERFORMANCE_VALUES (placebo)(veryslow)(slower)(slow)(medium)(fast)(faster)(veryfast)(superfast)(ultrafast)
+#	define GENERATE_ENCOE_PERFORMANCE_MODE(template, performance) template(performance)
+#	define GENERATE_ENCOE_PERFORMANCE_MODES(template)			\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, placebo)		\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, veryslow)		\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, slower)		\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, slow)			\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, medium)		\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, fast)			\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, faster)		\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, veryfast)		\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, superfast)	\
+		GENERATE_ENCOE_PERFORMANCE_MODE(template, ultrafast)
+#	define ENCOE_PERFORMANCE_ENUM_ENTRY(entry) entry,
 	struct EncodeConfig
 	{
 		int64_t crf;
 		enum class Performance
 		{
-			BOOST_PP_SEQ_ENUM(ENCODE_PERFORMANCE_VALUES)
+			GENERATE_ENCOE_PERFORMANCE_MODES(ENCOE_PERFORMANCE_ENUM_ENTRY)
 		} performance;
 	};
+#	ifndef VIDEO_RECORDER_IMPLEMENTATION
+#		undef GENERATE_ENCOE_PERFORMANCE_MODE
+#		undef GENERATE_ENCOE_PERFORMANCE_MODES
+#	endif
+#	undef ENCOE_PERFORMANCE_ENUM_ENTRY
 
 	class CFrame
 	{
