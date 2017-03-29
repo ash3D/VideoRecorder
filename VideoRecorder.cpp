@@ -21,7 +21,7 @@ using std::wcerr;
 using std::endl;
 
 static constexpr unsigned int cache_line = 64;	// for common x86 CPUs
-static constexpr char *const screenshotErrorMsgPrefix = "Fail to save screenshot \"";
+static constexpr const char *const screenshotErrorMsgPrefix = "Fail to save screenshot \"";
 static constexpr unsigned int lowFPS = 30, highFPS = 60;
 
 typedef CVideoRecorder::CFrame::FrameData::Format FrameFormat;
