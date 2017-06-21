@@ -109,7 +109,6 @@ void CVideoRecorder::KillRecordSession()
 	dstFrame.reset();
 
 	avio_closep(&videoFile->pb);
-	videoStream->codec = NULL;
 	videoFile.reset();
 }
 
@@ -470,18 +469,14 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		return;
 	}
 
-#if 0
 	if ((error = avcodec_parameters_from_context(parent.videoStream->codecpar, parent.context.get())) < 0)
 	{
-		std::wcerr << "Fail to extract codec parameters for video file \"" << filename << "\":" << av_err2str(error) << '.' << endl;
+		std::wcerr << "Fail to extract codec parameters for video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
 		parent.context.reset();
 		parent.dstFrame.reset();
 		parent.videoFile.reset();
 		return;
 	}
-#else
-	parent.videoStream->codec = parent.context.get();
-#endif
 	parent.videoStream->time_base = parent.context->time_base;
 
 	if ((error = avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE)) < 0)
@@ -489,7 +484,6 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		std::wcerr << "Fail to create video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
 		parent.context.reset();
 		parent.dstFrame.reset();
-		parent.videoStream->codec = NULL;
 		parent.videoFile.reset();
 		return;
 	}
@@ -500,7 +494,6 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		parent.context.reset();
 		parent.dstFrame.reset();
 		avio_closep(&parent.videoFile->pb);
-		parent.videoStream->codec = NULL;
 		parent.videoFile.reset();
 		return;
 	}
@@ -525,7 +518,6 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 
 	result += !result * av_write_trailer(parent.videoFile.get());
 	result += avio_closep(&parent.videoFile->pb);
-	parent.videoStream->codec = NULL;
 	parent.videoFile.reset();
 
 	if (result == 0)
