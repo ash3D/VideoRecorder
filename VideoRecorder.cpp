@@ -60,7 +60,6 @@ const AVCodec *const CVideoRecorder::codec = (av_register_all(), avcodec_registe
 
 inline void CVideoRecorder::ContextDeleter::operator()(AVCodecContext *context) const
 {
-	avcodec_close(context);
 	avcodec_free_context(&context);
 }
 
@@ -106,10 +105,11 @@ int CVideoRecorder::WritePacket()
 
 void CVideoRecorder::KillRecordSession()
 {
-	avcodec_close(context.get());
+	context.reset();
 	dstFrame.reset();
 
-	avio_close(videoFile->pb);
+	avio_closep(&videoFile->pb);
+	videoStream->codec = NULL;
 	videoFile.reset();
 }
 
@@ -393,9 +393,15 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		stopRecord(parent);
 	}
 
+	parent.context.reset(avcodec_alloc_context3(codec));
+	if (!parent.context)
+	{
+		wcerr << "Fail to init codec for video \"" << filename << "\"." << endl;
+		return;
+	}
+
 	parent.context->width = width & ~1;
 	parent.context->height = height & ~1;
-	parent.context->coded_width = parent.context->coded_height = 0;
 	parent.context->time_base = { 1, highFPS ? ::highFPS : ::lowFPS };
 	parent.context->pix_fmt = AV_PIX_FMT_YUV420P;
 	if (const auto availableThreads = std::thread::hardware_concurrency())
@@ -438,7 +444,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		if (result < 0)
 		{
 			wcerr << "Fail to allocate frame for video \"" << filename << "\"." << endl;
-			avcodec_close(parent.context.get());
+			parent.context.reset();
 			return;
 		}
 	}
@@ -450,7 +456,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	if (error < 0)
 	{
 		std::wcerr << "Fail to init output context for video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
-		avcodec_close(parent.context.get());
+		parent.context.reset();
 		parent.dstFrame.reset();
 		return;
 	}
@@ -459,7 +465,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	if (!(parent.videoStream = avformat_new_stream(parent.videoFile.get(), codec)))
 	{
 		std::wcerr << "Fail to add video stream for file \"" << filename << "\"." << endl;
-		avcodec_close(parent.context.get());
+		parent.context.reset();
 		parent.dstFrame.reset();
 		return;
 	}
@@ -468,8 +474,9 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	if ((error = avcodec_parameters_from_context(parent.videoStream->codecpar, parent.context.get())) < 0)
 	{
 		std::wcerr << "Fail to extract codec parameters for video file \"" << filename << "\":" << av_err2str(error) << '.' << endl;
-		avcodec_close(parent.context.get());
+		parent.context.reset();
 		parent.dstFrame.reset();
+		parent.videoFile.reset();
 		return;
 	}
 #else
@@ -480,8 +487,9 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	if ((error = avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE)) < 0)
 	{
 		std::wcerr << "Fail to create video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
-		avcodec_close(parent.context.get());
+		parent.context.reset();
 		parent.dstFrame.reset();
+		parent.videoStream->codec = NULL;
 		parent.videoFile.reset();
 		return;
 	}
@@ -489,9 +497,10 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	if ((error = avformat_write_header(parent.videoFile.get(), NULL) < 0))
 	{
 		std::wcerr << "Fail to write header for video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
-		avcodec_close(parent.context.get());
+		parent.context.reset();
 		parent.dstFrame.reset();
-		avio_close(parent.videoFile->pb);
+		avio_closep(&parent.videoFile->pb);
+		parent.videoStream->codec = NULL;
 		parent.videoFile.reset();
 		return;
 	}
@@ -515,15 +524,16 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 	} while (gotPacket && result == 0);
 
 	result += !result * av_write_trailer(parent.videoFile.get());
-	result += avio_close(parent.videoFile->pb);
+	result += avio_closep(&parent.videoFile->pb);
+	parent.videoStream->codec = NULL;
+	parent.videoFile.reset();
 
 	if (result == 0)
 		wclog << "Video has been recorded." << endl;
 	else
 		wcerr << "Fail to record video: " << parent.AVErrorString(result) << '.' << endl;
 
-	avcodec_close(parent.context.get());
-
+	parent.context.reset();
 	parent.dstFrame.reset();
 }
 #pragma endregion
@@ -604,14 +614,11 @@ void CVideoRecorder::Process()
 
 CVideoRecorder::CVideoRecorder() try :
 	avErrorBuf(std::make_unique<char []>(AV_ERROR_MAX_STRING_SIZE)),
-	context(avcodec_alloc_context3(codec)),
 	cvtCtx(nullptr, sws_freeContext),
 	packet(std::make_unique<decltype(packet)::element_type>()),
 	worker(std::mem_fn(&CVideoRecorder::Process), this)
 {
 	assert(codec);
-	if (!context)
-		throw std::bad_alloc();
 }
 catch (const std::exception &error)
 {
