@@ -55,12 +55,6 @@ static inline DXGI_FORMAT GetDXGIFormat(CVideoRecorder::CFrame::FrameData::Forma
 	}
 }
 
-static inline const char *AVErrorString(int error)
-{
-	static char buf[AV_ERROR_MAX_STRING_SIZE];
-	return av_make_error_string(buf, sizeof buf, error);
-}
-
 #define CODEC_ID AV_CODEC_ID_HEVC
 const AVCodec *const CVideoRecorder::codec = (av_register_all(), avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
 
@@ -94,6 +88,11 @@ inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodeConfig::Perform
 	}
 
 #	undef ENCOE_PERFORMANCE_MAP_ENUM_2_STRING
+}
+
+inline char *CVideoRecorder::AVErrorString(int error)
+{
+	return av_make_error_string(avErrorBuf.get(), AV_ERROR_MAX_STRING_SIZE, error);
 }
 
 int CVideoRecorder::WritePacket()
@@ -450,7 +449,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	int error = avformat_alloc_output_context2(&output, NULL, NULL, convertedFilename.c_str());
 	if (error < 0)
 	{
-		std::wcerr << "Fail to init output context for video file \"" << filename << "\":" << AVErrorString(error) << '.' << endl;
+		std::wcerr << "Fail to init output context for video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
 		avcodec_close(parent.context.get());
 		parent.dstFrame.reset();
 		return;
@@ -480,7 +479,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 
 	if ((error = avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE)) < 0)
 	{
-		std::wcerr << "Fail to create video file \"" << filename << "\":" << AVErrorString(error) << '.' << endl;
+		std::wcerr << "Fail to create video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
 		avcodec_close(parent.context.get());
 		parent.dstFrame.reset();
 		parent.videoFile.reset();
@@ -489,7 +488,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 
 	if ((error = avformat_write_header(parent.videoFile.get(), NULL) < 0))
 	{
-		std::wcerr << "Fail to write header for video file \"" << filename << "\":" << AVErrorString(error) << '.' << endl;
+		std::wcerr << "Fail to write header for video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
 		avcodec_close(parent.context.get());
 		parent.dstFrame.reset();
 		avio_close(parent.videoFile->pb);
@@ -521,7 +520,7 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 	if (result == 0)
 		wclog << "Video has been recorded." << endl;
 	else
-		wcerr << "Fail to record video: " << AVErrorString(result) << '.' << endl;
+		wcerr << "Fail to record video: " << parent.AVErrorString(result) << '.' << endl;
 
 	avcodec_close(parent.context.get());
 
@@ -619,6 +618,7 @@ void CVideoRecorder::Process()
 }
 
 CVideoRecorder::CVideoRecorder() try :
+	avErrorBuf(std::make_unique<char []>(AV_ERROR_MAX_STRING_SIZE)),
 	context(avcodec_alloc_context3(codec)),
 	cvtCtx(nullptr, sws_freeContext),
 	packet(std::make_unique<decltype(packet)::element_type>()),
