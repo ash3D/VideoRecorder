@@ -599,16 +599,22 @@ void CVideoRecorder::Process()
 	}
 }
 
+inline AVCodecContext *CVideoRecorder::AllocCodecContext()
+{
+	assert(codec);
+	if (AVCodecContext *const context = avcodec_alloc_context3(codec))
+		return context;
+	else
+		throw std::bad_alloc();
+}
+
 CVideoRecorder::CVideoRecorder() try :
 	avErrorBuf(std::make_unique<char []>(AV_ERROR_MAX_STRING_SIZE)),
-	context(avcodec_alloc_context3(codec)),
+	context(AllocCodecContext()),
 	cvtCtx(nullptr, sws_freeContext),
 	packet(std::make_unique<decltype(packet)::element_type>()),
 	worker(std::mem_fn(&CVideoRecorder::Process), this)
 {
-	if (!context)
-		throw std::bad_alloc();
-	assert(codec);
 }
 catch (const std::exception &error)
 {

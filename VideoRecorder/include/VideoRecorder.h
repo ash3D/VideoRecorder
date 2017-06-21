@@ -147,6 +147,7 @@ public:
 	};
 
 private:
+	static inline struct AVCodecContext *AllocCodecContext();
 	static inline const char *EncodePerformance_2_Str(EncodeConfig::Performance performance);
 	inline char *AVErrorString(int error);
 	int WritePacket();
