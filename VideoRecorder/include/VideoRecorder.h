@@ -20,8 +20,6 @@
 
 class CVideoRecorder
 {
-	static const struct AVCodec *const codec;
-
 	std::unique_ptr<char []> avErrorBuf;
 
 	struct ContextDeleter
@@ -147,7 +145,6 @@ public:
 	};
 
 private:
-	static inline struct AVCodecContext *AllocCodecContext();
 	static inline const char *EncodePerformance_2_Str(EncodeConfig::Performance performance);
 	inline char *AVErrorString(int error);
 	int WritePacket();

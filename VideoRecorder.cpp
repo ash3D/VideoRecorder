@@ -56,7 +56,7 @@ static inline DXGI_FORMAT GetDXGIFormat(CVideoRecorder::CFrame::FrameData::Forma
 }
 
 #define CODEC_ID AV_CODEC_ID_HEVC
-const AVCodec *const CVideoRecorder::codec = (av_register_all(), avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
+static const AVCodec *const codec = (av_register_all(), avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
 
 inline void CVideoRecorder::ContextDeleter::operator()(AVCodecContext *context) const
 {
@@ -599,7 +599,7 @@ void CVideoRecorder::Process()
 	}
 }
 
-inline AVCodecContext *CVideoRecorder::AllocCodecContext()
+static inline AVCodecContext *AllocCodecContext()
 {
 	assert(codec);
 	if (AVCodecContext *const context = avcodec_alloc_context3(codec))
