@@ -110,7 +110,7 @@
     </Link>
     <Lib />
     <Lib>
-      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avformat.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2017\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
@@ -133,7 +133,7 @@
     </Link>
     <Lib />
     <Lib>
-      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avformat.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2017\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
@@ -160,7 +160,7 @@
     </Link>
     <Lib />
     <Lib>
-      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avformat.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2017\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
@@ -187,7 +187,7 @@
     </Link>
     <Lib />
     <Lib>
-      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avformat.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2017\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>

@@ -9,8 +9,6 @@
 #include <tuple>
 #include <type_traits>
 #include <functional>
-#include <fstream>
-#include <iostream>
 #include <chrono>
 #include <ratio>
 #include <thread>
@@ -45,7 +43,13 @@ class CVideoRecorder
 	using FrameDuration = std::chrono::duration<clock::rep, std::ratio<1, FPS>>;
 	clock::time_point nextFrame;
 
-	std::ofstream videoFile;
+	struct OutputContextDeleter
+	{
+		inline void operator ()(struct AVFormatContext *output) const;
+	};
+	std::unique_ptr<struct AVFormatContext, OutputContextDeleter> videoFile;
+
+	struct AVStream *videoStream;
 
 	std::queue<std::wstring> screenshotPaths;
 
@@ -147,6 +151,7 @@ public:
 
 private:
 	static inline const char *EncodePerformance_2_Str(EncodeConfig::Performance performance);
+	int WritePacket();
 	void KillRecordSession();
 	[[noreturn]]
 	void Error(const std::system_error &error);

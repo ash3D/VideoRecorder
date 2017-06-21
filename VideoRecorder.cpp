@@ -1,5 +1,8 @@
 #define VIDEO_RECORDER_IMPLEMENTATION
 #include "VideoRecorder/include/VideoRecorder.h"
+#include <iostream>
+#include <locale>
+#include <codecvt>
 #include <filesystem>
 #include <algorithm>
 #include <iterator>
@@ -11,6 +14,7 @@ extern "C"
 {
 #	include <libavcodec/avcodec.h>
 #	include <libswscale/swscale.h>
+#	include <libavformat/avformat.h>
 #	include <libavutil/imgutils.h>
 #	include <libavutil/opt.h>
 }
@@ -51,8 +55,14 @@ static inline DXGI_FORMAT GetDXGIFormat(CVideoRecorder::CFrame::FrameData::Forma
 	}
 }
 
+static inline const char *AVErrorString(int error)
+{
+	static char buf[AV_ERROR_MAX_STRING_SIZE];
+	return av_make_error_string(buf, sizeof buf, error);
+}
+
 #define CODEC_ID AV_CODEC_ID_HEVC
-const AVCodec *const CVideoRecorder::codec = (avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
+const AVCodec *const CVideoRecorder::codec = (av_register_all(), avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
 
 inline void CVideoRecorder::ContextDeleter::operator()(AVCodecContext *context) const
 {
@@ -64,6 +74,11 @@ void CVideoRecorder::FrameDeleter::operator()(AVFrame *frame) const
 {
 	av_freep(frame->data);
 	av_frame_free(&frame);
+}
+
+inline void CVideoRecorder::OutputContextDeleter::operator()(AVFormatContext *output) const
+{
+	avformat_free_context(output);
 }
 
 inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodeConfig::Performance performance)
@@ -81,13 +96,22 @@ inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodeConfig::Perform
 #	undef ENCOE_PERFORMANCE_MAP_ENUM_2_STRING
 }
 
+int CVideoRecorder::WritePacket()
+{
+	av_packet_rescale_ts(packet.get(), context->time_base, videoStream->time_base);
+	packet->stream_index = videoStream->index;
+	const int result = av_interleaved_write_frame(videoFile.get(), packet.get());
+	av_packet_unref(packet.get());
+	return result;
+}
+
 void CVideoRecorder::KillRecordSession()
 {
 	avcodec_close(context.get());
 	dstFrame.reset();
 
-	videoFile.close();
-	videoFile.clear();
+	avio_close(videoFile->pb);
+	videoFile.reset();
 }
 
 /*
@@ -120,8 +144,7 @@ void CVideoRecorder::Error(const std::exception &error, const char errorMsgPrefi
 			wcerr << " Try again...";
 			break;
 		case Status::CLEAN:
-			assert(videoFile.good());
-			if (videoFile.is_open())
+			if (videoFile)
 			{
 				KillRecordSession();
 				taskQueue.clear();
@@ -286,7 +309,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		srcFrame->screenshotPaths.pop();
 	}
 
-	if (srcFrame->videoPendingFrames && (assert(parent.videoFile.good()), parent.videoFile.is_open()))
+	if (srcFrame->videoPendingFrames && parent.videoFile)
 	{
 		static constexpr char convertErrorMsgPrefix[] = "Fail to convert frame for video";
 		av_init_packet(parent.packet.get());
@@ -337,7 +360,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		do
 		{
 			int gotPacket;
-			const auto result = avcodec_encode_video2(parent.context.get(), parent.packet.get(), parent.dstFrame.get(), &gotPacket);
+			int result = avcodec_encode_video2(parent.context.get(), parent.packet.get(), parent.dstFrame.get(), &gotPacket);
 			assert(result == 0);
 			if (result != 0)
 			{
@@ -347,32 +370,25 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 			}
 			if (gotPacket)
 			{
-				parent.videoFile.write((const char *)parent.packet->data, parent.packet->size);
-				av_free_packet(parent.packet.get());
+				if (result = parent.WritePacket())
+				{
+					wcerr << "Fail to write video data to file" << endl;
+					parent.KillRecordSession();
+					return;
+				}
 			}
-			assert(parent.videoFile.good());
 
 			parent.dstFrame->pts++;
 		} while (--srcFrame->videoPendingFrames);
-
-		if (parent.videoFile.bad())
-		{
-			wcerr << "Fail to write video data to file." << endl;
-			parent.KillRecordSession();
-			return;
-		}
 	}
 }
 
 void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &parent)
 {
-	assert(parent.videoFile.good());
-	assert(!parent.videoFile.is_open());
-
 	if (!matchedStop)
 		wcerr << "Starting new video record session without stopping previouse one." << endl;
 
-	if (parent.videoFile.is_open())
+	if (parent.videoFile)
 	{
 		CStopVideoRecordRequest stopRecord(true);
 		stopRecord(parent);
@@ -429,29 +445,65 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	}
 	parent.dstFrame->pts = 0;
 
-	using std::ios_base;
-	parent.videoFile.open(filename, ios_base::out | ios_base::binary);
-	assert(parent.videoFile.good());
-	assert(parent.videoFile.is_open());
-	if (parent.videoFile.bad() || !parent.videoFile.is_open())
+	const std::string convertedFilename = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(filename);
+	AVFormatContext *output;
+	int error = avformat_alloc_output_context2(&output, NULL, NULL, convertedFilename.c_str());
+	if (error < 0)
 	{
-		std::wcerr << "Fail to create video file \"" << filename << "\"." << endl;
+		std::wcerr << "Fail to init output context for video file \"" << filename << "\":" << AVErrorString(error) << '.' << endl;
 		avcodec_close(parent.context.get());
 		parent.dstFrame.reset();
-		parent.videoFile.clear();
+		return;
+	}
+	parent.videoFile.reset(output);
+
+	if (!(parent.videoStream = avformat_new_stream(parent.videoFile.get(), codec)))
+	{
+		std::wcerr << "Fail to add video stream for file \"" << filename << "\"." << endl;
+		avcodec_close(parent.context.get());
+		parent.dstFrame.reset();
+		return;
+	}
+
+#if 0
+	if ((error = avcodec_parameters_from_context(parent.videoStream->codecpar, parent.context.get())) < 0)
+	{
+		std::wcerr << "Fail to extract codec parameters for video file \"" << filename << "\":" << av_err2str(error) << '.' << endl;
+		avcodec_close(parent.context.get());
+		parent.dstFrame.reset();
+		return;
+	}
+#else
+	parent.videoStream->codec = parent.context.get();
+#endif
+	parent.videoStream->time_base = parent.context->time_base;
+
+	if ((error = avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE)) < 0)
+	{
+		std::wcerr << "Fail to create video file \"" << filename << "\":" << AVErrorString(error) << '.' << endl;
+		avcodec_close(parent.context.get());
+		parent.dstFrame.reset();
+		parent.videoFile.reset();
+		return;
+	}
+
+	if ((error = avformat_write_header(parent.videoFile.get(), NULL) < 0))
+	{
+		std::wcerr << "Fail to write header for video file \"" << filename << "\":" << AVErrorString(error) << '.' << endl;
+		avcodec_close(parent.context.get());
+		parent.dstFrame.reset();
+		avio_close(parent.videoFile->pb);
+		parent.videoFile.reset();
 		return;
 	}
 }
 
 void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent)
 {
-	assert(parent.videoFile.good());
-	assert(parent.videoFile.is_open());
-
 	if (!matchedStart)
 		wcerr << "Stopping video record without matched start." << endl;
 
-	if (!parent.videoFile.is_open())
+	if (!parent.videoFile)
 		return;
 
 	int result, gotPacket;
@@ -460,21 +512,16 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 		result = avcodec_encode_video2(parent.context.get(), parent.packet.get(), NULL, &gotPacket);
 		assert(result == 0);
 		if (gotPacket && result == 0)
-		{
-			parent.videoFile.write((const char *)parent.packet->data, parent.packet->size);
-			av_free_packet(parent.packet.get());
-		}
+			result = parent.WritePacket();
 	} while (gotPacket && result == 0);
 
-	static const uint8_t endcode[] = { 0, 0, 1, 0xb7 };
-	parent.videoFile.write((const char *)endcode, sizeof endcode);
+	result += !result * av_write_trailer(parent.videoFile.get());
+	result += avio_close(parent.videoFile->pb);
 
-	parent.videoFile.close();
-	assert(parent.videoFile.good());
-	if (result == 0 && parent.videoFile.good())
+	if (result == 0)
 		wclog << "Video has been recorded." << endl;
 	else
-		wcerr << "Fail to record video." << endl;
+		wcerr << "Fail to record video: " << AVErrorString(result) << '.' << endl;
 
 	avcodec_close(parent.context.get());
 
