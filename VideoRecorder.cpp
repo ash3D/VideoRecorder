@@ -512,7 +512,7 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 	} while (gotPacket && result == 0);
 
 	result += !result * av_write_trailer(parent.videoFile.get());
-	result += avio_closep(&parent.videoFile->pb);
+	result += !result * avio_closep(&parent.videoFile->pb);
 	parent.videoFile.reset();
 
 	if (result == 0)
