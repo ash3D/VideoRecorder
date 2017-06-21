@@ -28,7 +28,7 @@ class CVideoRecorder
 	{
 		inline void operator ()(struct AVCodecContext *context) const;
 	};
-	std::unique_ptr<struct AVCodecContext, ContextDeleter> context;
+	const std::unique_ptr<struct AVCodecContext, ContextDeleter> context;
 
 	std::unique_ptr<struct SwsContext, void (*const)(struct SwsContext *swsContext)> cvtCtx;
 
