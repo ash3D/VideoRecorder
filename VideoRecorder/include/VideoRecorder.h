@@ -61,12 +61,7 @@ class CVideoRecorder
 	class CStopVideoRecordRequest;
 	std::deque<std::unique_ptr<ITask>> taskQueue;
 
-	enum class WorkerCondition : uint_least8_t
-	{
-		WAIT,
-		DO_JOB,
-		FINISH,
-	} workerCondition = WorkerCondition::WAIT;
+	bool finish = false;
 	std::mutex mtx;
 	std::condition_variable workerEvent;
 	std::thread worker;

@@ -132,7 +132,7 @@ void CVideoRecorder::Error(const std::exception &error, const char errorMsgPrefi
 	{
 		// wait to establish character order for wcerr and to free memory
 		std::unique_lock<decltype(mtx)> lck(mtx);
-		workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
+		workerEvent.wait(lck, [this] { return taskQueue.empty(); });
 		wcerr << errorMsgPrefix;
 		if (filename)
 			wcerr << '\"' << filename << '\"';
@@ -541,7 +541,6 @@ void CVideoRecorder::CFrame::Ready()
 	{
 		std::lock_guard<decltype(mtx)> lck(parent.mtx);
 		ready = true;
-		parent.workerCondition = WorkerCondition::DO_JOB;
 		parent.workerEvent.notify_all();
 	}
 	catch (const std::system_error &error)
@@ -573,7 +572,6 @@ void CVideoRecorder::CFrame::Cancel()
 			parent.taskQueue.erase(taskToDelete);
 			assert(std::find_if(parent.taskQueue.cbegin(), parent.taskQueue.cend(), pred) == parent.taskQueue.cend());
 		}
-		parent.workerCondition = WorkerCondition::DO_JOB;
 		parent.workerEvent.notify_all();
 	}
 	catch (const std::system_error &error)
@@ -586,33 +584,20 @@ void CVideoRecorder::CFrame::Cancel()
 void CVideoRecorder::Process()
 {
 	std::unique_lock<decltype(mtx)> lck(mtx);
-	while (true)
+	while (!finish)
 	{
-		switch (workerCondition)
+		if (taskQueue.empty() || !*taskQueue.front())
 		{
-		case WorkerCondition::WAIT:
+			workerEvent.notify_one();
 			workerEvent.wait(lck);
-			break;
-		case WorkerCondition::DO_JOB:
-			if (taskQueue.empty() || !*taskQueue.front())
-			{
-				workerCondition = WorkerCondition::WAIT;
-				workerEvent.notify_one();
-			}
-			else
-			{
-				auto task = std::move(taskQueue.front());
-				taskQueue.pop_front();
-				lck.unlock();
-				task->operator ()(*this);
-				lck.lock();
-			}
-			break;
-		case WorkerCondition::FINISH:
-			return;
-		default:
-			assert(false);
-			__assume(false);
+		}
+		else
+		{
+			auto task = std::move(taskQueue.front());
+			taskQueue.pop_front();
+			lck.unlock();
+			task->operator ()(*this);
+			lck.lock();
 		}
 	}
 }
@@ -649,7 +634,7 @@ CVideoRecorder::~CVideoRecorder()
 		{
 			// wait to establish character order for wcerr
 			std::unique_lock<decltype(mtx)> lck(mtx);
-			workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
+			workerEvent.wait(lck, [this] { return taskQueue.empty(); });
 			wcerr << "Destroying video recorder without stopping current record session." << endl;
 			lck.unlock();
 			StopRecord();
@@ -657,9 +642,9 @@ CVideoRecorder::~CVideoRecorder()
 
 		{
 			std::unique_lock<decltype(mtx)> lck(mtx);
-			workerEvent.wait(lck, [this] { return workerCondition == WorkerCondition::WAIT; });
+			workerEvent.wait(lck, [this] { return taskQueue.empty(); });
 
-			workerCondition = WorkerCondition::FINISH;
+			finish = true;
 			workerEvent.notify_all();
 		}
 
@@ -710,7 +695,6 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 			auto task = std::make_unique<CFrameTask>(RequestFrameCallback(std::make_tuple(std::ref(*this), std::move(screenshotPaths), std::move(videoPendingFrames))));
 			std::lock_guard<decltype(mtx)> lck(mtx);
 			taskQueue.push_back(std::move(task));
-			workerCondition = WorkerCondition::DO_JOB;
 			workerEvent.notify_all();
 		}
 		catch (const std::system_error &error)
@@ -740,7 +724,6 @@ void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, 
 			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, _10bit, highFPS, config, recordMode == RecordMode::STOPPED));
 		std::lock_guard<decltype(mtx)> lck(mtx);
 		taskQueue.push_back(std::move(task));
-		workerCondition = WorkerCondition::DO_JOB;
 		workerEvent.notify_all();
 		recordMode = highFPS ? RecordMode::HIGH_FPS : RecordMode::LOW_FPS;
 		nextFrame = clock::now();
@@ -773,7 +756,6 @@ void CVideoRecorder::StopRecord()
 		auto task = std::make_unique<CStopVideoRecordRequest>(recordMode != RecordMode::STOPPED);
 		std::lock_guard<decltype(mtx)> lck(mtx);
 		taskQueue.push_back(std::move(task));
-		workerCondition = WorkerCondition::DO_JOB;
 		workerEvent.notify_all();
 		recordMode = RecordMode::STOPPED;
 	}
