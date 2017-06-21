@@ -77,17 +77,17 @@ inline void CVideoRecorder::OutputContextDeleter::operator()(AVFormatContext *ou
 
 inline const char *CVideoRecorder::EncodePerformance_2_Str(EncodeConfig::Performance performance)
 {
-#	define ENCOE_PERFORMANCE_MAP_ENUM_2_STRING(entry)	\
+#	define ENCODE_PERFORMANCE_MAP_ENUM_2_STRING(entry)	\
 		case EncodeConfig::Performance::entry:	return #entry;
 
 	switch (performance)
 	{
-		GENERATE_ENCOE_PERFORMANCE_MODES(ENCOE_PERFORMANCE_MAP_ENUM_2_STRING)
+		GENERATE_ENCOE_PERFORMANCE_MODES(ENCODE_PERFORMANCE_MAP_ENUM_2_STRING)
 	default:
 		throw "Invalid encode performance value.";
 	}
 
-#	undef ENCOE_PERFORMANCE_MAP_ENUM_2_STRING
+#	undef ENCODE_PERFORMANCE_MAP_ENUM_2_STRING
 }
 
 inline char *CVideoRecorder::AVErrorString(int error)
