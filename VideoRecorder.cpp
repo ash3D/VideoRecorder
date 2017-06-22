@@ -84,7 +84,7 @@ inline const char *CVideoRecorder::EncodePerformance_2_Str(Performance performan
 	{
 		GENERATE_ENCOE_PERFORMANCE_MODES(ENCODE_PERFORMANCE_MAP_ENUM_2_STRING)
 	default:
-		throw "Invalid encode performance value.";
+		return nullptr;
 	}
 
 #	undef ENCODE_PERFORMANCE_MAP_ENUM_2_STRING
@@ -423,18 +423,15 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 
 	if (performance != Performance::Default)
 	{
-		try
+		if (const char *const performanceStr = EncodePerformance_2_Str(performance))
 		{
-			const int result = av_opt_set(parent.context->priv_data, "preset", EncodePerformance_2_Str(performance), 0);
+			const int result = av_opt_set(parent.context->priv_data, "preset", performanceStr, 0);
 			assert(result == 0);
 			if (result < 0)
 				wcerr << "Fail to set performance preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
 		}
-		catch (const char error[])
-		{
-			wcerr << error << endl;
-			return;
-		}
+		else
+			wcerr << "Invalid encode performance value for video \"" << filename << "\"." << endl;
 	}
 #endif
 
