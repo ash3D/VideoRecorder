@@ -79,29 +79,29 @@ class CVideoRecorder
 	} recordMode = RecordMode::STOPPED;
 
 public:
-#	define GENERATE_ENCOE_PERFORMANCE_MODE(template, performance) template(performance)
-#	define GENERATE_ENCOE_PERFORMANCE_MODES(template)			\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, placebo)		\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, veryslow)		\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, slower)		\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, slow)			\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, medium)		\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, fast)			\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, faster)		\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, veryfast)		\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, superfast)	\
-		GENERATE_ENCOE_PERFORMANCE_MODE(template, ultrafast)
-#	define ENCOE_PERFORMANCE_ENUM_ENTRY(entry) entry,
-	enum class Performance
+#	define GENERATE_ENCOE_PRESET(template, preset) template(preset)
+#	define GENERATE_ENCOE_PRESETS(template)			\
+		GENERATE_ENCOE_PRESET(template, placebo)	\
+		GENERATE_ENCOE_PRESET(template, veryslow)	\
+		GENERATE_ENCOE_PRESET(template, slower)		\
+		GENERATE_ENCOE_PRESET(template, slow)		\
+		GENERATE_ENCOE_PRESET(template, medium)		\
+		GENERATE_ENCOE_PRESET(template, fast)		\
+		GENERATE_ENCOE_PRESET(template, faster)		\
+		GENERATE_ENCOE_PRESET(template, veryfast)	\
+		GENERATE_ENCOE_PRESET(template, superfast)	\
+		GENERATE_ENCOE_PRESET(template, ultrafast)
+#	define ENCOE_PRESET_ENUM_ENTRY(entry) entry,
+	enum class Preset
 	{
-		GENERATE_ENCOE_PERFORMANCE_MODES(ENCOE_PERFORMANCE_ENUM_ENTRY)
+		GENERATE_ENCOE_PRESETS(ENCOE_PRESET_ENUM_ENTRY)
 		Default = -1
 	};
 #	ifndef VIDEO_RECORDER_IMPLEMENTATION
-#		undef GENERATE_ENCOE_PERFORMANCE_MODE
-#		undef GENERATE_ENCOE_PERFORMANCE_MODES
+#		undef GENERATE_ENCOE_PRESET
+#		undef GENERATE_ENCOE_PRESETS
 #	endif
-#	undef ENCOE_PERFORMANCE_ENUM_ENTRY
+#	undef ENCOE_PRESET_ENUM_ENTRY
 
 	class CFrame
 	{
@@ -142,7 +142,7 @@ public:
 	};
 
 private:
-	static inline const char *EncodePerformance_2_Str(Performance performance);
+	static inline const char *EncodePreset_2_Str(Preset preset);
 	inline char *AVErrorString(int error);
 	bool Encode();
 	void Cleanup();
@@ -151,7 +151,7 @@ private:
 	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);
 	template<unsigned int FPS>
 	inline void AdvanceFrame(clock::time_point now, decltype(CFrame::videoPendingFrames) &videoPendingFrames);
-	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Performance performance, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
+	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
 	void Process();
 
 public:
@@ -166,7 +166,7 @@ public:
 
 public:
 	void SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::Opaque)> &RequestFrameCallback);
-	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit/*8 if false*/, bool highFPS/*60 if true, 30 if false*/, int64_t crf = INT64_C(-1), Performance performance = Performance::Default);
+	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit/*8 if false*/, bool highFPS/*60 if true, 30 if false*/, int64_t crf = INT64_C(-1), Preset preset = Preset::Default);
 	void StopRecord();
 	void Screenshot(std::wstring filename);
 };

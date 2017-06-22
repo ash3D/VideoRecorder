@@ -73,19 +73,19 @@ inline void CVideoRecorder::OutputContextDeleter::operator()(AVFormatContext *ou
 	avformat_free_context(output);
 }
 
-inline const char *CVideoRecorder::EncodePerformance_2_Str(Performance performance)
+inline const char *CVideoRecorder::EncodePreset_2_Str(Preset preset)
 {
-#	define ENCODE_PERFORMANCE_MAP_ENUM_2_STRING(entry)	\
-		case Performance::entry:	return #entry;
+#	define ENCODE_PRESET_MAP_ENUM_2_STRING(entry)	\
+		case Preset::entry:	return #entry;
 
-	switch (performance)
+	switch (preset)
 	{
-		GENERATE_ENCOE_PERFORMANCE_MODES(ENCODE_PERFORMANCE_MAP_ENUM_2_STRING)
+		GENERATE_ENCOE_PRESETS(ENCODE_PRESET_MAP_ENUM_2_STRING)
 	default:
 		return nullptr;
 	}
 
-#	undef ENCODE_PERFORMANCE_MAP_ENUM_2_STRING
+#	undef ENCODE_PRESET_MAP_ENUM_2_STRING
 }
 
 inline char *CVideoRecorder::AVErrorString(int error)
@@ -246,7 +246,7 @@ class CVideoRecorder::CStartVideoRecordRequest final : public ITask
 	const std::wstring filename;
 	const unsigned int width, height;
 	const int64_t crf;
-	const Performance performance;
+	const Preset preset;
 	const bool _10bit, highFPS;
 	const bool matchedStop;
 
@@ -254,9 +254,9 @@ public:
 	const std::wstring &GetFilename() const noexcept { return filename; }
 
 public:
-	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Performance performance, bool matchedStop) noexcept :
+	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Preset preset, bool matchedStop) noexcept :
 		filename(std::move(filename)), width(width), height(height),
-		_10bit(_10bit), highFPS(highFPS), crf(crf), performance(performance), matchedStop(matchedStop) {}
+		_10bit(_10bit), highFPS(highFPS), crf(crf), preset(preset), matchedStop(matchedStop) {}
 	CStartVideoRecordRequest(CStartVideoRecordRequest &&) noexcept = default;
 
 public:
@@ -434,17 +434,17 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 			wcerr << "Fail to set crf for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
 	}
 
-	if (performance != Performance::Default)
+	if (preset != Preset::Default)
 	{
-		if (const char *const performanceStr = EncodePerformance_2_Str(performance))
+		if (const char *const presetStr = EncodePreset_2_Str(preset))
 		{
-			const int result = av_opt_set(parent.context->priv_data, "preset", performanceStr, 0);
+			const int result = av_opt_set(parent.context->priv_data, "preset", presetStr, 0);
 			assert(result == 0);
 			if (result < 0)
-				wcerr << "Fail to set performance preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+				wcerr << "Fail to set preset preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
 		}
 		else
-			wcerr << "Invalid encode performance value for video \"" << filename << "\"." << endl;
+			wcerr << "Invalid encode preset value for video \"" << filename << "\"." << endl;
 	}
 #endif
 
@@ -767,12 +767,12 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 }
 
 // CStartVideoRecordRequest steals (moves) filename during construction => can not reuse filename during retry => reuse task instead (if it was created successfully)
-void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Performance performance, std::unique_ptr<CStartVideoRecordRequest> &&task)
+void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task)
 {
 	try
 	{
 		if (!task)
-			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, _10bit, highFPS, crf, performance, recordMode == RecordMode::STOPPED));
+			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, _10bit, highFPS, crf, preset, recordMode == RecordMode::STOPPED));
 		std::lock_guard<decltype(mtx)> lck(mtx);
 		taskQueue.push_back(std::move(task));
 		workerEvent.notify_all();
@@ -789,15 +789,15 @@ void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, 
 		if (status == Status::OK)
 		{
 			status = Status::RETRY;
-			StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, crf, performance, std::move(task));
+			StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, crf, preset, std::move(task));
 			status = Status::OK;
 		}
 	}
 }
 
-void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Performance performance)
+void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Preset preset)
 {
-	StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, crf, performance);
+	StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, crf, preset);
 }
 
 void CVideoRecorder::StopRecord()
