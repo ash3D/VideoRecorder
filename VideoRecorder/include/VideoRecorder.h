@@ -148,7 +148,7 @@ private:
 	static inline const char *EncodePerformance_2_Str(EncodeConfig::Performance performance);
 	inline char *AVErrorString(int error);
 	bool Encode();
-	void KillRecordSession();
+	void Cleanup();
 	[[noreturn]]
 	void Error(const std::system_error &error);
 	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);

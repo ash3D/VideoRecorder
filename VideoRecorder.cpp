@@ -128,12 +128,12 @@ bool CVideoRecorder::Encode()
 	}
 }
 
-void CVideoRecorder::KillRecordSession()
+void CVideoRecorder::Cleanup()
 {
 	avcodec_close(context.get());
 	dstFrame.reset();
-
-	avio_closep(&videoFile->pb);
+	if (videoFile->pb)
+		avio_closep(&videoFile->pb);
 	videoFile.reset();
 }
 
@@ -169,7 +169,7 @@ void CVideoRecorder::Error(const std::exception &error, const char errorMsgPrefi
 		case Status::CLEAN:
 			if (videoFile)
 			{
-				KillRecordSession();
+				Cleanup();
 				taskQueue.clear();
 			}
 			break;
@@ -355,7 +355,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 			if (FAILED(hr))
 			{
 				wcerr << convertErrorMsgPrefix << " (hr=" << hr << ")." << endl;
-				parent.KillRecordSession();
+				parent.Cleanup();
 				return;
 			}
 			const auto resultImage = convertedImage.GetImage(0, 0, 0);
@@ -373,7 +373,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		if (!parent.cvtCtx)
 		{
 			wcerr << convertErrorMsgPrefix << '.' << endl;
-			parent.KillRecordSession();
+			parent.Cleanup();
 			return;
 		}
 		const int srcStride = srcFrameData.stride;
@@ -384,7 +384,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		{
 			if (!parent.Encode())
 			{
-				parent.KillRecordSession();
+				parent.Cleanup();
 				return;
 			}
 			parent.dstFrame->pts++;
@@ -410,13 +410,21 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	parent.context->pix_fmt = AV_PIX_FMT_YUV420P;
 	if (const auto availableThreads = std::thread::hardware_concurrency())
 		parent.context->thread_count = availableThreads;	// TODO: consider reserving 1 or more threads for other stuff
+
 #if CODEC_ID == AV_CODEC_ID_H264 || CODEC_ID == AV_CODEC_ID_HEVC
 	if (config.crf != -1)
 	{
 		try
 		{
-			av_opt_set(parent.context->priv_data, "preset", EncodePerformance_2_Str(config.performance), 0);
-			av_opt_set_int(parent.context.get(), "crf", config.crf, AV_OPT_SEARCH_CHILDREN);
+			int result = av_opt_set(parent.context->priv_data, "preset", EncodePerformance_2_Str(config.performance), 0);
+			assert(result == 0);
+			if (result < 0)
+				wcerr << "Fail to set performance preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+
+			result = av_opt_set_int(parent.context.get(), "crf", config.crf, AV_OPT_SEARCH_CHILDREN);
+			assert(result == 0);
+			if (result < 0)
+				wcerr << "Fail to set crf for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
 		}
 		catch (const char error[])
 		{
@@ -429,78 +437,98 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	wclog << "Recording video \"" << filename << "\" (using " << parent.context->thread_count << " threads for encoding)..." << endl;
 
 	{
-		const auto result = avcodec_open2(parent.context.get(), codec, NULL);
+		const int result = avcodec_open2(parent.context.get(), codec, NULL);
 		assert(result == 0);
 		if (result != 0)
 		{
-			wcerr << "Fail to open codec for video \"" << filename << "\"." << endl;
+			wcerr << "Fail to open codec for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
 			return;
 		}
 	}
 
 	parent.dstFrame.reset(av_frame_alloc());
+	assert(parent.dstFrame);
+	if (!parent.dstFrame)
+	{
+		wcerr << "Fail to allocate frame for video \"" << filename << "\"." << endl;
+		parent.Cleanup();
+		return;
+	}
+
 	parent.dstFrame->format = _10bit ? AV_PIX_FMT_YUV420P10 : AV_PIX_FMT_YUV420P;
 	parent.dstFrame->width = parent.context->width;
 	parent.dstFrame->height = parent.context->height;
+	parent.dstFrame->pts = 0;
+
 	{
-		const auto result = av_image_alloc(parent.dstFrame->data, parent.dstFrame->linesize, parent.context->width, parent.context->height, parent.context->pix_fmt, cache_line);
+		const int result = av_image_alloc(parent.dstFrame->data, parent.dstFrame->linesize, parent.context->width, parent.context->height, parent.context->pix_fmt, cache_line);
 		assert(result >= 0);
 		if (result < 0)
 		{
-			wcerr << "Fail to allocate frame for video \"" << filename << "\"." << endl;
-			avcodec_close(parent.context.get());
+			wcerr << "Fail to allocate frame for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+			parent.Cleanup();
 			return;
 		}
 	}
-	parent.dstFrame->pts = 0;
 
+	// NOTE: exception during string conversion will lead to process termination since it thrown from worker thread
 	const std::string convertedFilename = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(filename);
-	AVFormatContext *output;
-	int error = avformat_alloc_output_context2(&output, NULL, NULL, convertedFilename.c_str());
-	if (error < 0)
-	{
-		std::wcerr << "Fail to init output context for video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
-		avcodec_close(parent.context.get());
-		parent.dstFrame.reset();
-		return;
-	}
-	parent.videoFile.reset(output);
 
-	if (!(parent.videoStream = avformat_new_stream(parent.videoFile.get(), codec)))
 	{
-		std::wcerr << "Fail to add video stream for file \"" << filename << "\"." << endl;
-		avcodec_close(parent.context.get());
-		parent.dstFrame.reset();
-		return;
+		AVFormatContext *output;
+		const int result = avformat_alloc_output_context2(&output, NULL, NULL, convertedFilename.c_str());
+		assert(result >= 0);
+		if (result < 0)
+		{
+			wcerr << "Fail to init output context for video file \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+			parent.Cleanup();
+			return;
+		}
+		parent.videoFile.reset(output);
 	}
 
-	if ((error = avcodec_parameters_from_context(parent.videoStream->codecpar, parent.context.get())) < 0)
+	parent.videoStream = avformat_new_stream(parent.videoFile.get(), codec);
+	assert(parent.videoStream);
+	if (!parent.videoStream)
 	{
-		std::wcerr << "Fail to extract codec parameters for video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
-		avcodec_close(parent.context.get());
-		parent.dstFrame.reset();
-		parent.videoFile.reset();
+		wcerr << "Fail to add video stream for file \"" << filename << "\"." << endl;
+		parent.Cleanup();
 		return;
 	}
+
+	{
+		const int result = avcodec_parameters_from_context(parent.videoStream->codecpar, parent.context.get());
+		assert(result >= 0);
+		if (result < 0)
+		{
+			wcerr << "Fail to extract codec parameters for video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
+			parent.Cleanup();
+			return;
+		}
+	}
+
 	parent.videoStream->time_base = parent.context->time_base;
 
-	if ((error = avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE)) < 0)
 	{
-		std::wcerr << "Fail to create video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
-		avcodec_close(parent.context.get());
-		parent.dstFrame.reset();
-		parent.videoFile.reset();
-		return;
+		const int result = avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE);
+		assert(result >= 0);
+		if (result < 0)
+		{
+			wcerr << "Fail to create video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
+			parent.Cleanup();
+			return;
+		}
 	}
 
-	if ((error = avformat_write_header(parent.videoFile.get(), NULL) < 0))
 	{
-		std::wcerr << "Fail to write header for video file \"" << filename << "\":" << parent.AVErrorString(error) << '.' << endl;
-		avcodec_close(parent.context.get());
-		parent.dstFrame.reset();
-		avio_closep(&parent.videoFile->pb);
-		parent.videoFile.reset();
-		return;
+		const int result = avformat_write_header(parent.videoFile.get(), NULL);
+		assert(result == AVSTREAM_INIT_IN_WRITE_HEADER);
+		if (result < 0)
+		{
+			wcerr << "Fail to write header for video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
+			parent.Cleanup();
+			return;
+		}
 	}
 }
 
@@ -530,14 +558,12 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 		ok = false;
 	}
 
+	parent.Cleanup();
+
 	if (ok)
 		wclog << "Video has been recorded." << endl;
 	else
 		wcerr << "Fail to record video." << endl;
-
-	avcodec_close(parent.context.get());
-	parent.dstFrame.reset();
-	parent.videoFile.reset();
 }
 #pragma endregion
 
