@@ -382,6 +382,14 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 		do
 		{
+			const int result = av_frame_make_writable(parent.dstFrame.get());
+			assert(result == 0);
+			if (result < 0)
+			{
+				wcerr << "Fail to prepare video frame for writing: " << parent.AVErrorString(result) << '.' << endl;
+				parent.Cleanup();
+				return;
+			}
 			if (!parent.Encode())
 			{
 				parent.Cleanup();
