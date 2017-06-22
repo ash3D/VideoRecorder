@@ -92,13 +92,10 @@ public:
 		GENERATE_ENCOE_PERFORMANCE_MODE(template, superfast)	\
 		GENERATE_ENCOE_PERFORMANCE_MODE(template, ultrafast)
 #	define ENCOE_PERFORMANCE_ENUM_ENTRY(entry) entry,
-	struct EncodeConfig
+	enum class Performance
 	{
-		int64_t crf;
-		enum class Performance
-		{
-			GENERATE_ENCOE_PERFORMANCE_MODES(ENCOE_PERFORMANCE_ENUM_ENTRY)
-		} performance;
+		GENERATE_ENCOE_PERFORMANCE_MODES(ENCOE_PERFORMANCE_ENUM_ENTRY)
+		Default = -1
 	};
 #	ifndef VIDEO_RECORDER_IMPLEMENTATION
 #		undef GENERATE_ENCOE_PERFORMANCE_MODE
@@ -145,7 +142,7 @@ public:
 	};
 
 private:
-	static inline const char *EncodePerformance_2_Str(EncodeConfig::Performance performance);
+	static inline const char *EncodePerformance_2_Str(Performance performance);
 	inline char *AVErrorString(int error);
 	bool Encode();
 	void Cleanup();
@@ -154,7 +151,7 @@ private:
 	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);
 	template<unsigned int FPS>
 	inline void AdvanceFrame(clock::time_point now, decltype(CFrame::videoPendingFrames) &videoPendingFrames);
-	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, const EncodeConfig &config, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
+	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Performance performance, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
 	void Process();
 
 public:
@@ -169,7 +166,7 @@ public:
 
 public:
 	void SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::Opaque)> &RequestFrameCallback);
-	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit/*8 if false*/, bool highFPS/*60 if true, 30 if false*/, const EncodeConfig &config = { -1 });
+	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit/*8 if false*/, bool highFPS/*60 if true, 30 if false*/, int64_t crf = INT64_C(-1), Performance performance = Performance::Default);
 	void StopRecord();
 	void Screenshot(std::wstring filename);
 };
