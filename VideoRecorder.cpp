@@ -66,7 +66,6 @@ inline void CVideoRecorder::ContextDeleter::operator()(AVCodecContext *context) 
 
 void CVideoRecorder::FrameDeleter::operator()(AVFrame *frame) const
 {
-	av_freep(frame->data);
 	av_frame_free(&frame);
 }
 
@@ -462,11 +461,11 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 	parent.dstFrame->pts = 0;
 
 	{
-		const int result = av_image_alloc(parent.dstFrame->data, parent.dstFrame->linesize, parent.context->width, parent.context->height, parent.context->pix_fmt, cache_line);
+		const int result = av_frame_get_buffer(parent.dstFrame.get(), cache_line);
 		assert(result >= 0);
 		if (result < 0)
 		{
-			wcerr << "Fail to allocate frame for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+			wcerr << "Fail to allocate frame data for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
 			parent.Cleanup();
 			return;
 		}
