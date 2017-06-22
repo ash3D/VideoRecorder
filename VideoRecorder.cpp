@@ -60,7 +60,6 @@ static const AVCodec *const codec = (av_register_all(), avcodec_register_all(), 
 
 inline void CVideoRecorder::ContextDeleter::operator()(AVCodecContext *context) const
 {
-	avcodec_close(context);
 	avcodec_free_context(&context);
 }
 
@@ -129,7 +128,7 @@ bool CVideoRecorder::Encode()
 
 void CVideoRecorder::Cleanup()
 {
-	avcodec_close(context.get());
+	context.reset();
 	dstFrame.reset();
 	if (videoFile->pb)
 		avio_closep(&videoFile->pb);
@@ -411,6 +410,13 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		stopRecord(parent);
 	}
 
+	parent.context.reset(avcodec_alloc_context3(codec));
+	if (!parent.context)
+	{
+		wcerr << "Fail to init codec for video \"" << filename << "\"." << endl;
+		return;
+	}
+
 	parent.context->width = width & ~1;
 	parent.context->height = height & ~1;
 	parent.context->coded_width = parent.context->coded_height = 0;
@@ -450,6 +456,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		if (result != 0)
 		{
 			wcerr << "Fail to open codec for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+			parent.Cleanup();
 			return;
 		}
 	}
@@ -649,22 +656,13 @@ void CVideoRecorder::Process()
 	}
 }
 
-static inline AVCodecContext *AllocCodecContext()
-{
-	assert(codec);
-	if (AVCodecContext *const context = avcodec_alloc_context3(codec))
-		return context;
-	else
-		throw std::bad_alloc();
-}
-
 CVideoRecorder::CVideoRecorder() try :
 	avErrorBuf(std::make_unique<char []>(AV_ERROR_MAX_STRING_SIZE)),
-	context(AllocCodecContext()),
 	cvtCtx(nullptr, sws_freeContext),
 	packet(std::make_unique<decltype(packet)::element_type>()),
 	worker(std::mem_fn(&CVideoRecorder::Process), this)
 {
+	assert(codec);
 }
 catch (const std::exception &error)
 {
