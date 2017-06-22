@@ -147,7 +147,7 @@ public:
 private:
 	static inline const char *EncodePerformance_2_Str(EncodeConfig::Performance performance);
 	inline char *AVErrorString(int error);
-	int WritePacket();
+	bool Encode();
 	void KillRecordSession();
 	[[noreturn]]
 	void Error(const std::system_error &error);

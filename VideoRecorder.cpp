@@ -95,13 +95,37 @@ inline char *CVideoRecorder::AVErrorString(int error)
 	return av_make_error_string(avErrorBuf.get(), AV_ERROR_MAX_STRING_SIZE, error);
 }
 
-int CVideoRecorder::WritePacket()
+bool CVideoRecorder::Encode()
 {
-	av_packet_rescale_ts(packet.get(), context->time_base, videoStream->time_base);
-	packet->stream_index = videoStream->index;
-	const int result = av_interleaved_write_frame(videoFile.get(), packet.get());
-	av_packet_unref(packet.get());
-	return result;
+	int result = avcodec_send_frame(context.get(), dstFrame.get());
+	assert(result == 0);
+	if (result < 0)
+	{
+		wcerr << "Fail to " << (dstFrame ? "send frame to" : "flush") << " the encoder: " << AVErrorString(result) << '.' << endl;
+		return false;
+	}
+	while ((result = avcodec_receive_packet(context.get(), packet.get())) == 0)
+	{
+		av_packet_rescale_ts(packet.get(), context->time_base, videoStream->time_base);
+		packet->stream_index = videoStream->index;
+		result = av_interleaved_write_frame(videoFile.get(), packet.get());
+		assert(result == 0);
+		av_packet_unref(packet.get());
+		if (result < 0)
+		{
+			wcerr << "Fail to write video data to file: " << AVErrorString(result) << '.' << endl;
+			return false;
+		}
+	}
+	switch (result)
+	{
+	case AVERROR(EAGAIN):
+	case AVERROR_EOF:
+		return true;
+	default:
+		wcerr << "Fail to receive packet from the encoder: " << AVErrorString(result) << '.' << endl;
+		return false;
+	}
 }
 
 void CVideoRecorder::KillRecordSession()
@@ -358,25 +382,11 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 		do
 		{
-			int gotPacket;
-			int result = avcodec_encode_video2(parent.context.get(), parent.packet.get(), parent.dstFrame.get(), &gotPacket);
-			assert(result == 0);
-			if (result != 0)
+			if (!parent.Encode())
 			{
-				wcerr << "Fail to encode frame for video." << endl;
 				parent.KillRecordSession();
 				return;
 			}
-			if (gotPacket)
-			{
-				if (result = parent.WritePacket())
-				{
-					wcerr << "Fail to write video data to file" << endl;
-					parent.KillRecordSession();
-					return;
-				}
-			}
-
 			parent.dstFrame->pts++;
 		} while (--srcFrame->videoPendingFrames);
 	}
@@ -502,26 +512,32 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 	if (!parent.videoFile)
 		return;
 
-	int result, gotPacket;
-	do
+	bool ok = parent.Encode();
+
+	int result = av_write_trailer(parent.videoFile.get());
+	assert(result == 0);
+	if (result < 0)
 	{
-		result = avcodec_encode_video2(parent.context.get(), parent.packet.get(), NULL, &gotPacket);
-		assert(result == 0);
-		if (gotPacket && result == 0)
-			result = parent.WritePacket();
-	} while (gotPacket && result == 0);
+		wcerr << "Fail to write video stream trailer: " << parent.AVErrorString(result) << '.' << endl;
+		ok = false;
+	}
 
-	result += !result * av_write_trailer(parent.videoFile.get());
-	result += !result * avio_closep(&parent.videoFile->pb);
-	parent.videoFile.reset();
+	result = avio_closep(&parent.videoFile->pb);
+	assert(result == 0);
+	if (result < 0)
+	{
+		wcerr << "Fail to flush trailing video data to file: " << parent.AVErrorString(result) << '.' << endl;
+		ok = false;
+	}
 
-	if (result == 0)
+	if (ok)
 		wclog << "Video has been recorded." << endl;
 	else
-		wcerr << "Fail to record video: " << parent.AVErrorString(result) << '.' << endl;
+		wcerr << "Fail to record video." << endl;
 
 	avcodec_close(parent.context.get());
 	parent.dstFrame.reset();
+	parent.videoFile.reset();
 }
 #pragma endregion
 
