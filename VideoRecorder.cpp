@@ -55,8 +55,30 @@ static inline DXGI_FORMAT GetDXGIFormat(CVideoRecorder::CFrame::FrameData::Forma
 	}
 }
 
-#define CODEC_ID AV_CODEC_ID_HEVC
-static const AVCodec *const codec = (av_register_all(), avcodec_register_all(), avcodec_find_encoder(CODEC_ID));
+namespace
+{
+	const struct Init
+	{
+		Init()
+		{
+			av_register_all();
+			avcodec_register_all();
+		}
+	} init;
+}
+
+static inline AVCodec *FindEncoder(CVideoRecorder::Codec codec)
+{
+	switch (codec)
+	{
+	case CVideoRecorder::Codec::H264:
+		return avcodec_find_encoder(AV_CODEC_ID_H264);
+	case CVideoRecorder::Codec::HEVC:
+		return avcodec_find_encoder(AV_CODEC_ID_HEVC);
+	default:
+		throw "Invalid codec ID";
+	}
+}
 
 inline void CVideoRecorder::ContextDeleter::operator()(AVCodecContext *context) const
 {
@@ -245,6 +267,7 @@ class CVideoRecorder::CStartVideoRecordRequest final : public ITask
 {
 	const std::wstring filename;
 	const unsigned int width, height;
+	const Codec codecID;
 	const int64_t crf;
 	const Preset preset;
 	const bool _10bit, highFPS;
@@ -254,9 +277,9 @@ public:
 	const std::wstring &GetFilename() const noexcept { return filename; }
 
 public:
-	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Preset preset, bool matchedStop) noexcept :
+	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, Codec codec, int64_t crf, Preset preset, bool matchedStop) noexcept :
 		filename(std::move(filename)), width(width), height(height),
-		_10bit(_10bit), highFPS(highFPS), crf(crf), preset(preset), matchedStop(matchedStop) {}
+		_10bit(_10bit), highFPS(highFPS), codecID(codec), crf(crf), preset(preset), matchedStop(matchedStop) {}
 	CStartVideoRecordRequest(CStartVideoRecordRequest &&) noexcept = default;
 
 public:
@@ -410,140 +433,149 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		stopRecord(parent);
 	}
 
-	parent.context.reset(avcodec_alloc_context3(codec));
-	if (!parent.context)
+	try
 	{
-		wcerr << "Fail to init codec for video \"" << filename << "\"." << endl;
-		return;
-	}
+		const AVCodec *const codec = FindEncoder(codecID);
+		if (!codec)
+			throw "Fail to find codec";
 
-	parent.context->width = width & ~1;
-	parent.context->height = height & ~1;
-	parent.context->coded_width = parent.context->coded_height = 0;
-	parent.context->time_base = { 1, highFPS ? ::highFPS : ::lowFPS };
-	parent.context->pix_fmt = AV_PIX_FMT_YUV420P;
-	if (const auto availableThreads = std::thread::hardware_concurrency())
-		parent.context->thread_count = availableThreads;	// TODO: consider reserving 1 or more threads for other stuff
-
-#if CODEC_ID == AV_CODEC_ID_H264 || CODEC_ID == AV_CODEC_ID_HEVC
-	if (crf != -1)
-	{
-		const int result = av_opt_set_int(parent.context.get(), "crf", crf, AV_OPT_SEARCH_CHILDREN);
-		assert(result == 0);
-		if (result < 0)
-			wcerr << "Fail to set crf for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
-	}
-
-	if (preset != Preset::Default)
-	{
-		if (const char *const presetStr = EncodePreset_2_Str(preset))
+		parent.context.reset(avcodec_alloc_context3(codec));
+		if (!parent.context)
 		{
-			const int result = av_opt_set(parent.context->priv_data, "preset", presetStr, 0);
+			wcerr << "Fail to init codec for video \"" << filename << "\"." << endl;
+			return;
+		}
+
+		parent.context->width = width & ~1;
+		parent.context->height = height & ~1;
+		parent.context->coded_width = parent.context->coded_height = 0;
+		parent.context->time_base = { 1, highFPS ? ::highFPS : ::lowFPS };
+		parent.context->pix_fmt = AV_PIX_FMT_YUV420P;
+		if (const auto availableThreads = std::thread::hardware_concurrency())
+			parent.context->thread_count = availableThreads;	// TODO: consider reserving 1 or more threads for other stuff
+
+		if (crf != -1)
+		{
+			const int result = av_opt_set_int(parent.context.get(), "crf", crf, AV_OPT_SEARCH_CHILDREN);
 			assert(result == 0);
 			if (result < 0)
-				wcerr << "Fail to set preset preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+				wcerr << "Fail to set crf for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
 		}
-		else
-			wcerr << "Invalid encode preset value for video \"" << filename << "\"." << endl;
-	}
-#endif
 
-	wclog << "Recording video \"" << filename << "\" (using " << parent.context->thread_count << " threads for encoding)..." << endl;
-
-	{
-		const int result = avcodec_open2(parent.context.get(), codec, NULL);
-		assert(result == 0);
-		if (result != 0)
+		if (preset != Preset::Default)
 		{
-			wcerr << "Fail to open codec for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+			if (const char *const presetStr = EncodePreset_2_Str(preset))
+			{
+				const int result = av_opt_set(parent.context->priv_data, "preset", presetStr, 0);
+				assert(result == 0);
+				if (result < 0)
+					wcerr << "Fail to set preset preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+			}
+			else
+				wcerr << "Invalid encode preset value for video \"" << filename << "\"." << endl;
+		}
+
+		wclog << "Recording video \"" << filename << "\" (using " << parent.context->thread_count << " threads for encoding)..." << endl;
+
+		{
+			const int result = avcodec_open2(parent.context.get(), codec, NULL);
+			assert(result == 0);
+			if (result != 0)
+			{
+				wcerr << "Fail to open codec for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+				parent.Cleanup();
+				return;
+			}
+		}
+
+		parent.dstFrame.reset(av_frame_alloc());
+		assert(parent.dstFrame);
+		if (!parent.dstFrame)
+		{
+			wcerr << "Fail to allocate frame for video \"" << filename << "\"." << endl;
 			parent.Cleanup();
 			return;
 		}
-	}
 
-	parent.dstFrame.reset(av_frame_alloc());
-	assert(parent.dstFrame);
-	if (!parent.dstFrame)
-	{
-		wcerr << "Fail to allocate frame for video \"" << filename << "\"." << endl;
-		parent.Cleanup();
-		return;
-	}
+		parent.dstFrame->format = _10bit ? AV_PIX_FMT_YUV420P10 : AV_PIX_FMT_YUV420P;
+		parent.dstFrame->width = parent.context->width;
+		parent.dstFrame->height = parent.context->height;
+		parent.dstFrame->pts = 0;
 
-	parent.dstFrame->format = _10bit ? AV_PIX_FMT_YUV420P10 : AV_PIX_FMT_YUV420P;
-	parent.dstFrame->width = parent.context->width;
-	parent.dstFrame->height = parent.context->height;
-	parent.dstFrame->pts = 0;
-
-	{
-		const int result = av_frame_get_buffer(parent.dstFrame.get(), cache_line);
-		assert(result >= 0);
-		if (result < 0)
 		{
-			wcerr << "Fail to allocate frame data for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+			const int result = av_frame_get_buffer(parent.dstFrame.get(), cache_line);
+			assert(result >= 0);
+			if (result < 0)
+			{
+				wcerr << "Fail to allocate frame data for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+				parent.Cleanup();
+				return;
+			}
+		}
+
+		// NOTE: exception during string conversion will lead to process termination since it thrown from worker thread
+		const std::string convertedFilename = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(filename);
+
+		{
+			AVFormatContext *output;
+			const int result = avformat_alloc_output_context2(&output, NULL, NULL, convertedFilename.c_str());
+			assert(result >= 0);
+			if (result < 0)
+			{
+				wcerr << "Fail to init output context for video file \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+				parent.Cleanup();
+				return;
+			}
+			parent.videoFile.reset(output);
+		}
+
+		parent.videoStream = avformat_new_stream(parent.videoFile.get(), codec);
+		assert(parent.videoStream);
+		if (!parent.videoStream)
+		{
+			wcerr << "Fail to add video stream for file \"" << filename << "\"." << endl;
 			parent.Cleanup();
 			return;
 		}
-	}
 
-	// NOTE: exception during string conversion will lead to process termination since it thrown from worker thread
-	const std::string convertedFilename = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(filename);
-
-	{
-		AVFormatContext *output;
-		const int result = avformat_alloc_output_context2(&output, NULL, NULL, convertedFilename.c_str());
-		assert(result >= 0);
-		if (result < 0)
 		{
-			wcerr << "Fail to init output context for video file \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
-			parent.Cleanup();
-			return;
+			const int result = avcodec_parameters_from_context(parent.videoStream->codecpar, parent.context.get());
+			assert(result >= 0);
+			if (result < 0)
+			{
+				wcerr << "Fail to extract codec parameters for video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
+				parent.Cleanup();
+				return;
+			}
 		}
-		parent.videoFile.reset(output);
-	}
 
-	parent.videoStream = avformat_new_stream(parent.videoFile.get(), codec);
-	assert(parent.videoStream);
-	if (!parent.videoStream)
-	{
-		wcerr << "Fail to add video stream for file \"" << filename << "\"." << endl;
-		parent.Cleanup();
-		return;
-	}
+		parent.videoStream->time_base = parent.context->time_base;
 
-	{
-		const int result = avcodec_parameters_from_context(parent.videoStream->codecpar, parent.context.get());
-		assert(result >= 0);
-		if (result < 0)
 		{
-			wcerr << "Fail to extract codec parameters for video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
-			parent.Cleanup();
-			return;
+			const int result = avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE);
+			assert(result >= 0);
+			if (result < 0)
+			{
+				wcerr << "Fail to create video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
+				parent.Cleanup();
+				return;
+			}
 		}
-	}
 
-	parent.videoStream->time_base = parent.context->time_base;
-
-	{
-		const int result = avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE);
-		assert(result >= 0);
-		if (result < 0)
 		{
-			wcerr << "Fail to create video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
-			parent.Cleanup();
-			return;
+			const int result = avformat_write_header(parent.videoFile.get(), NULL);
+			assert(result == AVSTREAM_INIT_IN_WRITE_HEADER);
+			if (result < 0)
+			{
+				wcerr << "Fail to write header for video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
+				parent.Cleanup();
+				return;
+			}
 		}
 	}
-
+	catch (const char error[])
 	{
-		const int result = avformat_write_header(parent.videoFile.get(), NULL);
-		assert(result == AVSTREAM_INIT_IN_WRITE_HEADER);
-		if (result < 0)
-		{
-			wcerr << "Fail to write header for video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
-			parent.Cleanup();
-			return;
-		}
+		wcerr << error << " for video \"" << filename << "\"." << endl;
 	}
 }
 
@@ -662,7 +694,6 @@ CVideoRecorder::CVideoRecorder() try :
 	packet(std::make_unique<decltype(packet)::element_type>()),
 	worker(std::mem_fn(&CVideoRecorder::Process), this)
 {
-	assert(codec);
 }
 catch (const std::exception &error)
 {
@@ -767,12 +798,12 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 }
 
 // CStartVideoRecordRequest steals (moves) filename during construction => can not reuse filename during retry => reuse task instead (if it was created successfully)
-void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task)
+void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task)
 {
 	try
 	{
 		if (!task)
-			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, _10bit, highFPS, crf, preset, recordMode == RecordMode::STOPPED));
+			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, _10bit, highFPS, codec, crf, preset, recordMode == RecordMode::STOPPED));
 		std::lock_guard<decltype(mtx)> lck(mtx);
 		taskQueue.push_back(std::move(task));
 		workerEvent.notify_all();
@@ -789,15 +820,15 @@ void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, 
 		if (status == Status::OK)
 		{
 			status = Status::RETRY;
-			StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, crf, preset, std::move(task));
+			StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, codec, crf, preset, std::move(task));
 			status = Status::OK;
 		}
 	}
 }
 
-void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Preset preset)
+void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, Codec codec, int64_t crf, Preset preset)
 {
-	StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, crf, preset);
+	StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, codec, crf, preset);
 }
 
 void CVideoRecorder::StopRecord()

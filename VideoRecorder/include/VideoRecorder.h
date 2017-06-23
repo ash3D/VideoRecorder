@@ -79,6 +79,12 @@ class CVideoRecorder
 	} recordMode = RecordMode::STOPPED;
 
 public:
+	enum class Codec
+	{
+		H264,
+		H265,
+		HEVC = H265,
+	};
 #	define GENERATE_ENCOE_PRESET(template, preset) template(preset)
 #	define GENERATE_ENCOE_PRESETS(template)			\
 		GENERATE_ENCOE_PRESET(template, placebo)	\
@@ -151,7 +157,7 @@ private:
 	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);
 	template<unsigned int FPS>
 	inline void AdvanceFrame(clock::time_point now, decltype(CFrame::videoPendingFrames) &videoPendingFrames);
-	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
+	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
 	void Process();
 
 public:
@@ -166,7 +172,7 @@ public:
 
 public:
 	void SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::Opaque)> &RequestFrameCallback);
-	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit/*8 if false*/, bool highFPS/*60 if true, 30 if false*/, int64_t crf = INT64_C(-1), Preset preset = Preset::Default);
+	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit/*8 if false*/, bool highFPS/*60 if true, 30 if false*/, Codec codec, int64_t crf = INT64_C(-1), Preset preset = Preset::Default);
 	void StopRecord();
 	void Screenshot(std::wstring filename);
 };
