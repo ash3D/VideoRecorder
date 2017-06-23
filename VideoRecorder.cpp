@@ -67,6 +67,17 @@ namespace
 	} init;
 }
 
+static inline auto GetAVFormat(CVideoRecorder::Format format)
+{
+	switch (format)
+	{
+	case CVideoRecorder::Format::_8bit:		return AV_PIX_FMT_YUV420P;
+	case CVideoRecorder::Format::_10bit:	return AV_PIX_FMT_YUV420P10;
+	default:
+		throw "Invalid format";
+	}
+}
+
 static inline AVCodec *FindEncoder(CVideoRecorder::Codec codec)
 {
 	switch (codec)
@@ -288,16 +299,17 @@ class CVideoRecorder::CStartVideoRecordRequest final : public ITask
 	const Codec codecID;
 	const int64_t crf;
 	const Preset preset;
-	const bool _10bit, highFPS;
+	const Format format;
+	const FPS fps;
 	const bool matchedStop;
 
 public:
 	const std::wstring &GetFilename() const noexcept { return filename; }
 
 public:
-	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, Codec codec, int64_t crf, Preset preset, bool matchedStop) noexcept :
+	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset, bool matchedStop) noexcept :
 		filename(std::move(filename)), width(width), height(height),
-		_10bit(_10bit), highFPS(highFPS), codecID(codec), crf(crf), preset(preset), matchedStop(matchedStop) {}
+		format(format), fps(fps), codecID(codec), crf(crf), preset(preset), matchedStop(matchedStop) {}
 	CStartVideoRecordRequest(CStartVideoRecordRequest &&) noexcept = default;
 
 public:
@@ -499,7 +511,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		if (!parent.dstFrame)
 			throw "Fail to allocate frame";
 
-		parent.dstFrame->format = _10bit ? AV_PIX_FMT_YUV420P10 : AV_PIX_FMT_YUV420P;
+		parent.dstFrame->format = GetAVFormat(format);
 		parent.dstFrame->width = parent.context->width;
 		parent.dstFrame->height = parent.context->height;
 		parent.dstFrame->pts = 0;
@@ -674,7 +686,7 @@ CVideoRecorder::~CVideoRecorder()
 {
 	try
 	{
-		if (recordMode != RecordMode::STOPPED)
+		if (fps != STOPPED)
 		{
 			// wait to establish character order for wcerr
 			std::unique_lock<decltype(mtx)> lck(mtx);
@@ -701,11 +713,11 @@ CVideoRecorder::~CVideoRecorder()
 }
 
 // 1 call site
-template<unsigned int FPS>
+template<CVideoRecorder::FPS fps>
 inline void CVideoRecorder::AdvanceFrame(clock::time_point now, decltype(CFrame::videoPendingFrames) &videoPendingFrames)
 {
 	using std::chrono::duration_cast;
-	const auto delta = duration_cast<FrameDuration<FPS>>(now - nextFrame) + FrameDuration<FPS>(1u);
+	const auto delta = duration_cast<FrameDuration<(unsigned int)fps>>(now - nextFrame) + FrameDuration<(unsigned int)fps>(1u);
 	nextFrame += duration_cast<clock::duration>(delta);
 	videoPendingFrames = delta.count();
 }
@@ -715,19 +727,22 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 	decltype(CFrame::videoPendingFrames) videoPendingFrames = 0;
 
 	const auto nextFrameBackup = nextFrame;
-	if (recordMode != RecordMode::STOPPED)
+	if (fps != STOPPED)
 	{
 		const auto now = clock::now();
 		if (now >= nextFrame)
 		{
-			switch (recordMode)
+			switch (fps)
 			{
-			case RecordMode::LOW_FPS:
-				AdvanceFrame<lowFPS>(now, videoPendingFrames);
+			case FPS::_30:
+				AdvanceFrame<FPS::_30>(now, videoPendingFrames);
 				break;
-			case RecordMode::HIGH_FPS:
-				AdvanceFrame<highFPS>(now, videoPendingFrames);
+			case FPS::_60:
+				AdvanceFrame<FPS::_60>(now, videoPendingFrames);
 				break;
+			default:
+				assert(false);
+				__assume(false);
 			}
 		}
 	}
@@ -760,16 +775,16 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 }
 
 // CStartVideoRecordRequest steals (moves) filename during construction => can not reuse filename during retry => reuse task instead (if it was created successfully)
-void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task)
+void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task)
 {
 	try
 	{
 		if (!task)
-			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, _10bit, highFPS, codec, crf, preset, recordMode == RecordMode::STOPPED));
+			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, format, fps, codec, crf, preset, this->fps == STOPPED));
 		std::lock_guard<decltype(mtx)> lck(mtx);
 		taskQueue.push_back(std::move(task));
 		workerEvent.notify_all();
-		recordMode = highFPS ? RecordMode::HIGH_FPS : RecordMode::LOW_FPS;
+		this->fps = fps;
 		nextFrame = clock::now();
 	}
 	catch (const std::system_error &error)
@@ -782,26 +797,37 @@ void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, 
 		if (status == Status::OK)
 		{
 			status = Status::RETRY;
-			StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, codec, crf, preset, std::move(task));
+			StartRecordImpl(std::move(filename), width, height, format, fps, codec, crf, preset, std::move(task));
 			status = Status::OK;
 		}
 	}
 }
 
-void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, bool _10bit, bool highFPS, Codec codec, int64_t crf, Preset preset)
+void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset)
 {
-	StartRecordImpl(std::move(filename), width, height, _10bit, highFPS, codec, crf, preset);
+	switch (fps)
+	{
+	case FPS::_30:
+	case FPS::_60:
+		break;
+	default:
+		// wait to establish character order for wcerr
+		std::unique_lock<decltype(mtx)> lck(mtx);
+		wcerr << "Invalid fps for video \"" << filename << "\"." << endl;
+		return;
+	}
+	StartRecordImpl(std::move(filename), width, height, format, fps, codec, crf, preset);
 }
 
 void CVideoRecorder::StopRecord()
 {
 	try
 	{
-		auto task = std::make_unique<CStopVideoRecordRequest>(recordMode != RecordMode::STOPPED);
+		auto task = std::make_unique<CStopVideoRecordRequest>(fps != STOPPED);
 		std::lock_guard<decltype(mtx)> lck(mtx);
 		taskQueue.push_back(std::move(task));
 		workerEvent.notify_all();
-		recordMode = RecordMode::STOPPED;
+		fps = STOPPED;
 	}
 	catch (const std::system_error &error)
 	{
