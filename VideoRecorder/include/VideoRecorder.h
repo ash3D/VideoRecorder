@@ -71,16 +71,13 @@ class CVideoRecorder
 		CLEAN,
 	} status = Status::OK;
 
-	static constexpr enum struct FPS : signed STOPPED = FPS(-1);
-	FPS fps = STOPPED;
-
 public:
 	enum class Format
 	{
 		_8bit,
 		_10bit,
 	};
-	enum struct FPS
+	enum struct FPS : signed
 	{
 		_30 = 30,
 		_60 = 60,
@@ -152,6 +149,10 @@ public:
 		
 		virtual FrameData GetFrameData() const = 0;
 	};
+
+private:
+	static constexpr FPS STOPPED = FPS(-1);
+	FPS fps = STOPPED;
 
 private:
 	static inline const char *EncodePreset_2_Str(Preset preset);
