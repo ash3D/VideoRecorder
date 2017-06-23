@@ -79,6 +79,7 @@ public:
 	};
 	enum struct FPS : signed
 	{
+		_25 = 25,
 		_30 = 30,
 		_60 = 60,
 	};

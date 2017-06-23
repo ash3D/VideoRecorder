@@ -734,6 +734,9 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 		{
 			switch (fps)
 			{
+			case FPS::_25:
+				AdvanceFrame<FPS::_25>(now, videoPendingFrames);
+				break;
 			case FPS::_30:
 				AdvanceFrame<FPS::_30>(now, videoPendingFrames);
 				break;
@@ -807,6 +810,7 @@ void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsi
 {
 	switch (fps)
 	{
+	case FPS::_25:
 	case FPS::_30:
 	case FPS::_60:
 		break;
