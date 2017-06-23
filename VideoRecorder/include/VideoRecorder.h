@@ -150,6 +150,7 @@ public:
 private:
 	static inline const char *EncodePreset_2_Str(Preset preset);
 	inline char *AVErrorString(int error);
+	inline void CheckAVResultImpl(int result, const char error[]), CheckAVResult(int result, const char error[]), CheckAVResult(int result, int expected, const char error[]);
 	bool Encode();
 	void Cleanup();
 	[[noreturn]]

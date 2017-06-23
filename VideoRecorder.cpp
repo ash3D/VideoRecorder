@@ -115,6 +115,24 @@ inline char *CVideoRecorder::AVErrorString(int error)
 	return av_make_error_string(avErrorBuf.get(), AV_ERROR_MAX_STRING_SIZE, error);
 }
 
+inline void CVideoRecorder::CheckAVResultImpl(int result, const char error[])
+{
+	if (result < 0)
+		throw std::make_pair(error, result);
+}
+
+inline void CVideoRecorder::CheckAVResult(int result, const char error[])
+{
+	assert(result >= 0);
+	CheckAVResultImpl(result, error);
+}
+
+inline void CVideoRecorder::CheckAVResult(int result, int expected, const char error[])
+{
+	assert(result == expected);
+	CheckAVResultImpl(result, error);
+}
+
 bool CVideoRecorder::Encode()
 {
 	int result = avcodec_send_frame(context.get(), dstFrame.get());
@@ -152,7 +170,7 @@ void CVideoRecorder::Cleanup()
 {
 	context.reset();
 	dstFrame.reset();
-	if (videoFile->pb)
+	if (videoFile && videoFile->pb)
 		avio_closep(&videoFile->pb);
 	videoFile.reset();
 }
@@ -441,10 +459,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 
 		parent.context.reset(avcodec_alloc_context3(codec));
 		if (!parent.context)
-		{
-			wcerr << "Fail to init codec for video \"" << filename << "\"." << endl;
-			return;
-		}
+			throw "Fail to init codec";
 
 		parent.context->width = width & ~1;
 		parent.context->height = height & ~1;
@@ -469,7 +484,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 				const int result = av_opt_set(parent.context->priv_data, "preset", presetStr, 0);
 				assert(result == 0);
 				if (result < 0)
-					wcerr << "Fail to set preset preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+					wcerr << "Fail to set preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
 			}
 			else
 				wcerr << "Invalid encode preset value for video \"" << filename << "\"." << endl;
@@ -477,105 +492,52 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 
 		wclog << "Recording video \"" << filename << "\" (using " << parent.context->thread_count << " threads for encoding)..." << endl;
 
-		{
-			const int result = avcodec_open2(parent.context.get(), codec, NULL);
-			assert(result == 0);
-			if (result != 0)
-			{
-				wcerr << "Fail to open codec for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
-				parent.Cleanup();
-				return;
-			}
-		}
+		parent.CheckAVResult(avcodec_open2(parent.context.get(), codec, NULL), 0, "Fail to open codec");
 
 		parent.dstFrame.reset(av_frame_alloc());
 		assert(parent.dstFrame);
 		if (!parent.dstFrame)
-		{
-			wcerr << "Fail to allocate frame for video \"" << filename << "\"." << endl;
-			parent.Cleanup();
-			return;
-		}
+			throw "Fail to allocate frame";
 
 		parent.dstFrame->format = _10bit ? AV_PIX_FMT_YUV420P10 : AV_PIX_FMT_YUV420P;
 		parent.dstFrame->width = parent.context->width;
 		parent.dstFrame->height = parent.context->height;
 		parent.dstFrame->pts = 0;
 
-		{
-			const int result = av_frame_get_buffer(parent.dstFrame.get(), cache_line);
-			assert(result >= 0);
-			if (result < 0)
-			{
-				wcerr << "Fail to allocate frame data for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
-				parent.Cleanup();
-				return;
-			}
-		}
+		parent.CheckAVResult(av_frame_get_buffer(parent.dstFrame.get(), cache_line), 0, "Fail to allocate frame data");
 
-		// NOTE: exception during string conversion will lead to process termination since it thrown from worker thread
 		const std::string convertedFilename = std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(filename);
 
 		{
 			AVFormatContext *output;
-			const int result = avformat_alloc_output_context2(&output, NULL, NULL, convertedFilename.c_str());
-			assert(result >= 0);
-			if (result < 0)
-			{
-				wcerr << "Fail to init output context for video file \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
-				parent.Cleanup();
-				return;
-			}
+			parent.CheckAVResult(avformat_alloc_output_context2(&output, NULL, NULL, convertedFilename.c_str()), "Fail to init output context");
 			parent.videoFile.reset(output);
 		}
 
 		parent.videoStream = avformat_new_stream(parent.videoFile.get(), codec);
 		assert(parent.videoStream);
 		if (!parent.videoStream)
-		{
-			wcerr << "Fail to add video stream for file \"" << filename << "\"." << endl;
-			parent.Cleanup();
-			return;
-		}
-
-		{
-			const int result = avcodec_parameters_from_context(parent.videoStream->codecpar, parent.context.get());
-			assert(result >= 0);
-			if (result < 0)
-			{
-				wcerr << "Fail to extract codec parameters for video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
-				parent.Cleanup();
-				return;
-			}
-		}
-
+			throw "Fail to add video stream";
+		parent.CheckAVResult(avcodec_parameters_from_context(parent.videoStream->codecpar, parent.context.get()), "Fail to extract codec parameters");
 		parent.videoStream->time_base = parent.context->time_base;
 
-		{
-			const int result = avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE);
-			assert(result >= 0);
-			if (result < 0)
-			{
-				wcerr << "Fail to create video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
-				parent.Cleanup();
-				return;
-			}
-		}
-
-		{
-			const int result = avformat_write_header(parent.videoFile.get(), NULL);
-			assert(result == AVSTREAM_INIT_IN_WRITE_HEADER);
-			if (result < 0)
-			{
-				wcerr << "Fail to write header for video file \"" << filename << "\":" << parent.AVErrorString(result) << '.' << endl;
-				parent.Cleanup();
-				return;
-			}
-		}
+		parent.CheckAVResult(avio_open(&parent.videoFile->pb, convertedFilename.c_str(), AVIO_FLAG_WRITE), "Fail to create file");
+		parent.CheckAVResult(avformat_write_header(parent.videoFile.get(), NULL), AVSTREAM_INIT_IN_WRITE_HEADER, "Fail to write header");
 	}
 	catch (const char error[])
 	{
 		wcerr << error << " for video \"" << filename << "\"." << endl;
+		parent.Cleanup();
+	}
+	catch (const std::pair<const char *, int> error)
+	{
+		wcerr << error.first << " for video \"" << filename << "\": " << parent.AVErrorString(error.second) << '.' << endl;
+		parent.Cleanup();
+	}
+	catch (const std::exception &error)	// catches exception during string conversion
+	{
+		wcerr << "Fail to start record video \"" << filename << "\": " << error.what() << '.' << endl;
+		parent.Cleanup();
 	}
 }
 
