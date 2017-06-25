@@ -20,6 +20,8 @@ extern "C"
 }
 #include "DirectXTex.h"
 
+#define ENABLE_10BIT_TARGET_FORMAT 0
+
 using std::wclog;
 using std::wcerr;
 using std::endl;
@@ -401,7 +403,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 				srcFrameData.width, srcFrameData.height, GetDXGIFormat(srcFrameData.format),
 				srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(srcFrameData.pixels))
 			};
-			const auto intermediateDXFormat = parent.context->pix_fmt == AV_PIX_FMT_YUV420P10 ? (srcVideoFormat = AV_PIX_FMT_RGBA64, DXGI_FORMAT_R16G16B16A16_UNORM) : DXGI_FORMAT_B8G8R8A8_UNORM;
+			const auto intermediateDXFormat = parent.dstFrame->format == AV_PIX_FMT_YUV420P10 ? (srcVideoFormat = AV_PIX_FMT_RGBA64, DXGI_FORMAT_R16G16B16A16_UNORM) : DXGI_FORMAT_B8G8R8A8_UNORM;
 			const HRESULT hr = Convert(srcImage, intermediateDXFormat, TEX_FILTER_DEFAULT, .5f, convertedImage);
 			if (FAILED(hr))
 			{
@@ -418,7 +420,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 		parent.cvtCtx.reset(sws_getCachedContext(parent.cvtCtx.release(),
 			srcFrameData.width, srcFrameData.height, srcVideoFormat,
-			parent.context->width, parent.context->height, parent.context->pix_fmt,
+			parent.dstFrame->width, parent.dstFrame->height, AVPixelFormat(parent.dstFrame->format),
 			SWS_BILINEAR, NULL, NULL, NULL));
 		assert(parent.cvtCtx);
 		if (!parent.cvtCtx)
@@ -475,7 +477,11 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		parent.context->width = width & ~1;
 		parent.context->height = height & ~1;
 		parent.context->time_base = { 1, (int)fps };
+#if ENABLE_10BIT_TARGET_FORMAT
+		parent.context->pix_fmt = GetAVFormat(format);
+#else
 		parent.context->pix_fmt = AV_PIX_FMT_YUV420P;
+#endif
 		if (const auto availableThreads = std::thread::hardware_concurrency())
 			parent.context->thread_count = availableThreads;	// TODO: consider reserving 1 or more threads for other stuff
 
@@ -509,7 +515,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		if (!parent.dstFrame)
 			throw "Fail to allocate frame";
 
-		parent.dstFrame->format = GetAVFormat(format);
+		parent.dstFrame->format = parent.context->pix_fmt;
 		parent.dstFrame->width = parent.context->width;
 		parent.dstFrame->height = parent.context->height;
 		parent.dstFrame->pts = 0;
