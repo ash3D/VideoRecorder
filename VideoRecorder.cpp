@@ -79,14 +79,14 @@ static inline auto GetAVFormat(CVideoRecorder::Format format)
 	}
 }
 
-static inline AVCodec *FindEncoder(CVideoRecorder::Codec codec)
+static inline AVCodec *FindEncoder(CVideoRecorder::Codec codec, bool nv)
 {
 	switch (codec)
 	{
 	case CVideoRecorder::Codec::H264:
-		return avcodec_find_encoder(AV_CODEC_ID_H264);
+		return nv ? avcodec_find_encoder_by_name("nvenc_h264") : avcodec_find_encoder(AV_CODEC_ID_H264);
 	case CVideoRecorder::Codec::HEVC:
-		return avcodec_find_encoder(AV_CODEC_ID_HEVC);
+		return nv ? avcodec_find_encoder_by_name("nvenc_hevc") : avcodec_find_encoder(AV_CODEC_ID_HEVC);
 	default:
 		throw "Invalid codec ID";
 	}
@@ -107,20 +107,34 @@ inline void CVideoRecorder::OutputContextDeleter::operator()(AVFormatContext *ou
 	avformat_free_context(output);
 }
 
+#define ENCODE_PRESET_MAP_ENUM_2_STRING(entry)	\
+	case PRESET::entry:	return #entry;
+
 inline const char *CVideoRecorder::EncodePreset_2_Str(Preset preset)
 {
-#	define ENCODE_PRESET_MAP_ENUM_2_STRING(entry)	\
-		case Preset::entry:	return #entry;
-
+#	define PRESET Preset
 	switch (preset)
 	{
 		GENERATE_ENCOE_PRESETS(ENCODE_PRESET_MAP_ENUM_2_STRING)
 	default:
 		return nullptr;
 	}
-
-#	undef ENCODE_PRESET_MAP_ENUM_2_STRING
+#	undef PRESET
 }
+
+inline const char *CVideoRecorder::EncodePreset_2_Str(PresetNV preset)
+{
+#define PRESET PresetNV
+	switch (preset)
+	{
+		GENERATE_ENCOE_PRESETS_NV(ENCODE_PRESET_MAP_ENUM_2_STRING)
+	default:
+		return nullptr;
+	}
+#	undef PRESET
+}
+
+#undef ENCODE_PRESET_MAP_ENUM_2_STRING
 
 inline char *CVideoRecorder::AVErrorString(int error)
 {
@@ -298,8 +312,7 @@ class CVideoRecorder::CStartVideoRecordRequest final : public ITask
 	const std::wstring filename;
 	const unsigned int width, height;
 	const Codec codecID;
-	const int64_t crf;
-	const Preset preset;
+	const EncoderConfig config;
 	const Format format;
 	const FPS fps;
 	const bool matchedStop;
@@ -308,9 +321,9 @@ public:
 	const std::wstring &GetFilename() const noexcept { return filename; }
 
 public:
-	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset, bool matchedStop) noexcept :
+	CStartVideoRecordRequest(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, EncoderConfig config, bool matchedStop) noexcept :
 		filename(std::move(filename)), width(width), height(height),
-		format(format), fps(fps), codecID(codec), crf(crf), preset(preset), matchedStop(matchedStop) {}
+		format(format), fps(fps), codecID(codec), config(config), matchedStop(matchedStop) {}
 	CStartVideoRecordRequest(CStartVideoRecordRequest &&) noexcept = default;
 
 public:
@@ -466,7 +479,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 
 	try
 	{
-		const AVCodec *const codec = FindEncoder(codecID);
+		const AVCodec *const codec = FindEncoder(codecID, config.nv);
 		if (!codec)
 			throw "Fail to find codec";
 
@@ -485,25 +498,51 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		if (const auto availableThreads = std::thread::hardware_concurrency())
 			parent.context->thread_count = availableThreads;	// TODO: consider reserving 1 or more threads for other stuff
 
-		if (crf != -1)
+		if (config.nv)
 		{
-			const int result = av_opt_set_int(parent.context.get(), "crf", crf, AV_OPT_SEARCH_CHILDREN);
-			assert(result == 0);
-			if (result < 0)
-				wcerr << "Fail to set crf for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
-		}
-
-		if (preset != Preset::Default)
-		{
-			if (const char *const presetStr = EncodePreset_2_Str(preset))
+			if (config.nvenc.cq != -1)
 			{
-				const int result = av_opt_set(parent.context->priv_data, "preset", presetStr, 0);
+				const int result = av_opt_set_int(parent.context.get(), "cq", config.nvenc.cq, AV_OPT_SEARCH_CHILDREN);
 				assert(result == 0);
 				if (result < 0)
-					wcerr << "Fail to set preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+					wcerr << "Fail to set cq for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
 			}
-			else
-				wcerr << "Invalid encode preset value for video \"" << filename << "\"." << endl;
+
+			if (config.nvenc.preset != PresetNV::Default)
+			{
+				if (const char *const presetStr = EncodePreset_2_Str(config.nvenc.preset))
+				{
+					const int result = av_opt_set(parent.context->priv_data, "preset", presetStr, 0);
+					assert(result == 0);
+					if (result < 0)
+						wcerr << "Fail to set preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+				}
+				else
+					wcerr << "Invalid encode preset value for video \"" << filename << "\"." << endl;
+			}
+		}
+		else
+		{
+			if (config.x264_265.crf != -1)
+			{
+				const int result = av_opt_set_int(parent.context.get(), "crf", config.x264_265.crf, AV_OPT_SEARCH_CHILDREN);
+				assert(result == 0);
+				if (result < 0)
+					wcerr << "Fail to set crf for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+			}
+
+			if (config.x264_265.preset != Preset::Default)
+			{
+				if (const char *const presetStr = EncodePreset_2_Str(config.x264_265.preset))
+				{
+					const int result = av_opt_set(parent.context->priv_data, "preset", presetStr, 0);
+					assert(result == 0);
+					if (result < 0)
+						wcerr << "Fail to set preset for video \"" << filename << "\": " << parent.AVErrorString(result) << '.' << endl;
+				}
+				else
+					wcerr << "Invalid encode preset value for video \"" << filename << "\"." << endl;
+			}
 		}
 
 		wclog << "Recording video \"" << filename << "\" (using " << parent.context->thread_count << " threads for encoding)..." << endl;
@@ -782,12 +821,12 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 }
 
 // CStartVideoRecordRequest steals (moves) filename during construction => can not reuse filename during retry => reuse task instead (if it was created successfully)
-void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task)
+void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, EncoderConfig config, std::unique_ptr<CStartVideoRecordRequest> &&task)
 {
 	try
 	{
 		if (!task)
-			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, format, fps, codec, crf, preset, this->fps == STOPPED));
+			task.reset(new CStartVideoRecordRequest(std::move(filename), width, height, format, fps, codec, config, this->fps == STOPPED));
 		std::lock_guard<decltype(mtx)> lck(mtx);
 		taskQueue.push_back(std::move(task));
 		workerEvent.notify_all();
@@ -804,13 +843,13 @@ void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width
 		if (status == Status::OK)
 		{
 			status = Status::RETRY;
-			StartRecordImpl(std::move(filename), width, height, format, fps, codec, crf, preset, std::move(task));
+			StartRecordImpl(std::move(filename), width, height, format, fps, codec, config, std::move(task));
 			status = Status::OK;
 		}
 	}
 }
 
-void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset)
+void CVideoRecorder::StartRecordImplCheckFPS(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, EncoderConfig config)
 {
 	switch (fps)
 	{
@@ -824,7 +863,21 @@ void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsi
 		wcerr << "Invalid fps for video \"" << filename << "\"." << endl;
 		return;
 	}
-	StartRecordImpl(std::move(filename), width, height, format, fps, codec, crf, preset);
+	StartRecordImpl(std::move(filename), width, height, format, fps, codec, config);
+}
+
+void CVideoRecorder::StartRecord(std::wstring filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset)
+{
+	StartRecordImplCheckFPS(std::move(filename), width, height, format, fps, codec, { crf, preset });
+}
+
+void CVideoRecorder::StartRecordNV(std::wstring filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t cq, PresetNV preset)
+{
+	EncoderConfig config;
+	config.nvenc.cq = cq;
+	config.nvenc.preset = preset;
+	config.nv = true;
+	StartRecordImplCheckFPS(std::move(filename), width, height, format, fps, codec, config);
 }
 
 void CVideoRecorder::StopRecord()

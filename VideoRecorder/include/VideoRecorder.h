@@ -101,15 +101,33 @@ public:
 		GENERATE_ENCOE_PRESET(template, veryfast)	\
 		GENERATE_ENCOE_PRESET(template, superfast)	\
 		GENERATE_ENCOE_PRESET(template, ultrafast)
+#	define GENERATE_ENCOE_PRESETS_NV(template)		\
+		GENERATE_ENCOE_PRESET(template, slow)		\
+		GENERATE_ENCOE_PRESET(template, medium)		\
+		GENERATE_ENCOE_PRESET(template, fast)		\
+		GENERATE_ENCOE_PRESET(template, hp)			\
+		GENERATE_ENCOE_PRESET(template, hq)			\
+		GENERATE_ENCOE_PRESET(template, bd)			\
+		GENERATE_ENCOE_PRESET(template, ll)			\
+		GENERATE_ENCOE_PRESET(template, llhq)		\
+		GENERATE_ENCOE_PRESET(template, llhp)		\
+		GENERATE_ENCOE_PRESET(template, lossless)	\
+		GENERATE_ENCOE_PRESET(template, losslesshp)
 #	define ENCOE_PRESET_ENUM_ENTRY(entry) entry,
 	enum class Preset
 	{
 		GENERATE_ENCOE_PRESETS(ENCOE_PRESET_ENUM_ENTRY)
 		Default = -1
 	};
+	enum class PresetNV
+	{
+		GENERATE_ENCOE_PRESETS_NV(ENCOE_PRESET_ENUM_ENTRY)
+		Default = -1
+	};
 #	ifndef VIDEO_RECORDER_IMPLEMENTATION
 #		undef GENERATE_ENCOE_PRESET
 #		undef GENERATE_ENCOE_PRESETS
+#		undef GENERATE_ENCOE_PRESETS_NV
 #	endif
 #	undef ENCOE_PRESET_ENUM_ENTRY
 
@@ -152,11 +170,28 @@ public:
 	};
 
 private:
+	struct EncoderConfig
+	{
+		union
+		{
+			struct
+			{
+				int64_t crf;
+				Preset preset;
+			} x264_265;
+			struct
+			{
+				int64_t cq;
+				PresetNV preset;
+			} nvenc;
+		};
+		bool nv;
+	};
 	static constexpr FPS STOPPED = FPS(-1);
 	FPS fps = STOPPED;
 
 private:
-	static inline const char *EncodePreset_2_Str(Preset preset);
+	static inline const char *EncodePreset_2_Str(Preset preset), *EncodePreset_2_Str(PresetNV preset);
 	inline char *AVErrorString(int error);
 	inline void CheckAVResultImpl(int result, const char error[]), CheckAVResult(int result, const char error[]), CheckAVResult(int result, int expected, const char error[]);
 	bool Encode();
@@ -166,7 +201,8 @@ private:
 	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);
 	template<FPS>
 	inline void AdvanceFrame(clock::time_point now, decltype(CFrame::videoPendingFrames) &videoPendingFrames);
-	void StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
+	void StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, EncoderConfig config, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
+	void StartRecordImplCheckFPS(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, EncoderConfig config);
 	void Process();
 
 public:
@@ -182,6 +218,7 @@ public:
 public:
 	void SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::Opaque)> &RequestFrameCallback);
 	void StartRecord(std::wstring filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf = INT64_C(-1), Preset preset = Preset::Default);
+	void StartRecordNV(std::wstring filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t cq = INT64_C(-1), PresetNV preset = PresetNV::Default);
 	void StopRecord();
 	void Screenshot(std::wstring filename);
 };
