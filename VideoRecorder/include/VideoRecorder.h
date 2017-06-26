@@ -166,7 +166,7 @@ private:
 	void Error(const std::exception &error, const char errorMsgPrefix[], const std::wstring *filename = nullptr);
 	template<FPS>
 	inline void AdvanceFrame(clock::time_point now, decltype(CFrame::videoPendingFrames) &videoPendingFrames);
-	void StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
+	void StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task = nullptr);
 	void Process();
 
 public:

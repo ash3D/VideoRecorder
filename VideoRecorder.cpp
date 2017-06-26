@@ -782,7 +782,7 @@ void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CF
 }
 
 // CStartVideoRecordRequest steals (moves) filename during construction => can not reuse filename during retry => reuse task instead (if it was created successfully)
-void CVideoRecorder::StartRecordImpl(std::wstring filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task)
+void CVideoRecorder::StartRecordImpl(std::wstring &&filename, unsigned int width, unsigned int height, Format format, FPS fps, Codec codec, int64_t crf, Preset preset, std::unique_ptr<CStartVideoRecordRequest> &&task)
 {
 	try
 	{
