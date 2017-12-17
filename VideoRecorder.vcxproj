@@ -22,7 +22,7 @@
     <ProjectGuid>{B1E429DE-4063-4F3C-8AE3-31ED6D265410}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>VideoRecorder</RootNamespace>
-    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.16299.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
