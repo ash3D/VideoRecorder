@@ -362,7 +362,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 		try
 		{
-			std::tr2::sys::path screenshotPath(srcFrame->screenshotPaths.front());
+			std::experimental::filesystem::path screenshotPath(srcFrame->screenshotPaths.front());
 			const auto screenshotCodec = GetScreenshotCodec(screenshotPath.extension());
 
 			const Image image =
