@@ -612,6 +612,7 @@ void CVideoRecorder::CStopVideoRecordRequest::operator ()(CVideoRecorder &parent
 	if (!parent.videoFile)
 		return;
 
+	parent.dstFrame.reset();
 	bool ok = parent.Encode();
 
 	int result = av_write_trailer(parent.videoFile.get());
