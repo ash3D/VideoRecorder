@@ -400,7 +400,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 	if (srcFrame->videoPendingFrames && parent.videoFile)
 	{
-		static constexpr char convertErrorMsgPrefix[] = "Fail to convert frame for video";
+		static constexpr char convertErrorMsgPrefix[] = "Fail to convert frame for video", makeWritableErrorMsgPrefix[] = "Fail to prepare video frame for writing: ";
 		av_init_packet(parent.packet.get());
 		parent.packet->data = NULL;
 		parent.packet->size = 0;
@@ -443,6 +443,14 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 			return;
 		}
 		const int srcStride = srcFrameData.stride;
+		const int result = av_frame_make_writable(parent.dstFrame.get());
+		assert(result == 0);
+		if (result < 0)
+		{
+			wcerr << makeWritableErrorMsgPrefix << parent.AVErrorString(result) << '.' << endl;
+			parent.Cleanup();
+			return;
+		}
 		sws_scale(parent.cvtCtx.get(), reinterpret_cast<const uint8_t *const*>(&srcFrameData.pixels), &srcStride, 0, srcFrameData.height, parent.dstFrame->data, parent.dstFrame->linesize);
 		convertedImage.Release();
 
@@ -452,16 +460,16 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 			assert(result == 0);
 			if (result < 0)
 			{
-				wcerr << "Fail to prepare video frame for writing: " << parent.AVErrorString(result) << '.' << endl;
+				wcerr << makeWritableErrorMsgPrefix << parent.AVErrorString(result) << '.' << endl;
 				parent.Cleanup();
 				return;
 			}
+			parent.dstFrame->pts++;
 			if (!parent.Encode())
 			{
 				parent.Cleanup();
 				return;
 			}
-			parent.dstFrame->pts++;
 		} while (--srcFrame->videoPendingFrames);
 	}
 }
@@ -557,7 +565,7 @@ void CVideoRecorder::CStartVideoRecordRequest::operator ()(CVideoRecorder &paren
 		parent.dstFrame->format = parent.context->pix_fmt;
 		parent.dstFrame->width = parent.context->width;
 		parent.dstFrame->height = parent.context->height;
-		parent.dstFrame->pts = 0;
+		parent.dstFrame->pts = -1;
 
 		parent.CheckAVResult(av_frame_get_buffer(parent.dstFrame.get(), cache_line), 0, "Fail to allocate frame data");
 
