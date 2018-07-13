@@ -26,7 +26,12 @@ using std::wclog;
 using std::wcerr;
 using std::endl;
 
-static constexpr unsigned int cache_line = 64;	// for common x86 CPUs
+static constexpr auto cache_line =
+#if __cpp_lib_hardware_interference_size || defined _MSC_VER && _MSC_VER >= 1911
+std::hardware_constructive_interference_size;
+#else
+64;	// for common x86 CPUs
+#endif
 static constexpr const char *const screenshotErrorMsgPrefix = "Fail to save screenshot \"";
 
 typedef CVideoRecorder::CFrame::FrameData::Format FrameFormat;
