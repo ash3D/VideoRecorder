@@ -883,6 +883,7 @@ void CVideoRecorder::StartRecordImplCheckFPS(std::wstring &&filename, unsigned i
 		wcerr << "Invalid fps for video \"" << filename << "\"." << endl;
 		return;
 	}
+	std::replace(filename.begin(), filename.end(), L'\\', L'/');
 	StartRecordImpl(std::move(filename), width, height, format, fps, codec, config);
 }
 
