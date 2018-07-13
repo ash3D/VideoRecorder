@@ -425,7 +425,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 				srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(srcFrameData.pixels))
 			};
 			const auto intermediateDXFormat = parent.dstFrame->format == AV_PIX_FMT_YUV420P10 ? (srcVideoFormat = AV_PIX_FMT_RGBA64, DXGI_FORMAT_R16G16B16A16_UNORM) : (srcVideoFormat = AV_PIX_FMT_RGBA, DXGI_FORMAT_R8G8B8A8_UNORM);
-			const HRESULT hr = Convert(srcImage, intermediateDXFormat, TEX_FILTER_DEFAULT, .5f, convertedImage);
+			const HRESULT hr = Convert(srcImage, intermediateDXFormat, TEX_FILTER_DEFAULT, TEX_THRESHOLD_DEFAULT, convertedImage);
 			if (FAILED(hr))
 			{
 				wcerr << convertErrorMsgPrefix << " (hr=" << hr << ")." << endl;
