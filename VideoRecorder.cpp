@@ -48,6 +48,8 @@ static inline DXGI_FORMAT GetDXGIFormat(CVideoRecorder::CFrame::FrameData::Forma
 	{
 	case FrameFormat::B8G8R8A8:
 		return DXGI_FORMAT_B8G8R8A8_UNORM;
+	case FrameFormat::R8G8B8A8:
+		return DXGI_FORMAT_R8G8B8A8_UNORM;
 	case FrameFormat::R10G10B10A2:
 		return DXGI_FORMAT_R10G10B10A2_UNORM;
 	default:
@@ -405,10 +407,16 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 		parent.packet->data = NULL;
 		parent.packet->size = 0;
 
-		AVPixelFormat srcVideoFormat = AV_PIX_FMT_BGRA;
+		AVPixelFormat srcVideoFormat;	// to be inited in switch below
 		ScratchImage convertedImage;
 		switch (srcFrameData.format)
 		{
+		case FrameFormat::B8G8R8A8:
+			srcVideoFormat = AV_PIX_FMT_BGRA;
+			break;
+		case FrameFormat::R8G8B8A8:
+			srcVideoFormat = AV_PIX_FMT_RGBA;
+			break;
 		case FrameFormat::R10G10B10A2:
 		{
 			const Image srcImage =
@@ -416,7 +424,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 				srcFrameData.width, srcFrameData.height, GetDXGIFormat(srcFrameData.format),
 				srcFrameData.stride, srcFrameData.stride * srcFrameData.height, const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(srcFrameData.pixels))
 			};
-			const auto intermediateDXFormat = parent.dstFrame->format == AV_PIX_FMT_YUV420P10 ? (srcVideoFormat = AV_PIX_FMT_RGBA64, DXGI_FORMAT_R16G16B16A16_UNORM) : DXGI_FORMAT_B8G8R8A8_UNORM;
+			const auto intermediateDXFormat = parent.dstFrame->format == AV_PIX_FMT_YUV420P10 ? (srcVideoFormat = AV_PIX_FMT_RGBA64, DXGI_FORMAT_R16G16B16A16_UNORM) : (srcVideoFormat = AV_PIX_FMT_RGBA, DXGI_FORMAT_R8G8B8A8_UNORM);
 			const HRESULT hr = Convert(srcImage, intermediateDXFormat, TEX_FILTER_DEFAULT, .5f, convertedImage);
 			if (FAILED(hr))
 			{
@@ -429,6 +437,9 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 			srcFrameData.pixels = resultImage->pixels;
 			break;
 		}
+		default:
+			assert(false);
+			__assume(false);
 		}
 
 		parent.cvtCtx.reset(sws_getCachedContext(parent.cvtCtx.release(),

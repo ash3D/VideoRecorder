@@ -156,9 +156,11 @@ public:
 	public:
 		struct FrameData
 		{
+			// consider option to provide DXGI format directly
 			enum class Format
 			{
 				B8G8R8A8,
+				R8G8B8A8,
 				R10G10B10A2,
 			} format;
 			unsigned int width, height;
