@@ -148,7 +148,6 @@ public:
 		CFrame(Opaque opaque);
 		CFrame(CFrame &) = delete;
 		void operator =(CFrame &) = delete;
-		virtual ~CFrame() = default;
 
 	public:
 		void Ready(), Cancel();
