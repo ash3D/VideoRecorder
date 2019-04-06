@@ -131,7 +131,7 @@ inline const char *CVideoRecorder::EncodePreset_2_Str(Preset preset)
 
 inline const char *CVideoRecorder::EncodePreset_2_Str(PresetNV preset)
 {
-#define PRESET PresetNV
+#	define PRESET PresetNV
 	switch (preset)
 	{
 		GENERATE_ENCOE_PRESETS_NV(ENCODE_PRESET_MAP_ENUM_2_STRING)
@@ -787,7 +787,12 @@ inline void CVideoRecorder::AdvanceFrame(clock::time_point now, decltype(CFrame:
 	using std::chrono::duration_cast;
 	const auto delta = duration_cast<FrameDuration<(unsigned int)fps>>(now - nextFrame) + FrameDuration<(unsigned int)fps>(1u);
 	nextFrame += duration_cast<clock::duration>(delta);
+#if defined _MSC_VER && _MSC_VER == 1920
+	// workaround for VS 2019
+	videoPendingFrames = [](const auto &delta) { return delta.count(); } (delta);
+#else
 	videoPendingFrames = delta.count();
+#endif
 }
 
 void CVideoRecorder::SampleFrame(const std::function<std::shared_ptr<CFrame> (CFrame::Opaque)> &RequestFrameCallback)

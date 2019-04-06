@@ -1,11 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.26228.4
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.28729.10
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VideoRecorder", "VideoRecorder.vcxproj", "{B1E429DE-4063-4F3C-8AE3-31ED6D265410}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DirectXTex", "DirectXTex\DirectXTex\DirectXTex_Desktop_2017.vcxproj", "{371B9FA9-4C90-4AC6-A123-ACED756D6C77}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DirectXTex", "DirectXTex\DirectXTex\DirectXTex_Desktop_2019_Win10.vcxproj", "{371B9FA9-4C90-4AC6-A123-ACED756D6C77}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -44,5 +44,8 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {491B661C-953D-442C-A674-BCF21E988C9D}
 	EndGlobalSection
 EndGlobal
