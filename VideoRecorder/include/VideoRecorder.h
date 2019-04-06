@@ -77,7 +77,7 @@ public:
 		_8bit,
 		_10bit,
 	};
-	enum struct FPS : signed
+	enum struct FPS
 	{
 		_25 = 25,
 		_30 = 30,
@@ -188,7 +188,7 @@ private:
 		};
 		bool nv;
 	};
-	static constexpr FPS STOPPED = FPS(-1);
+	static constexpr FPS STOPPED{};
 	FPS fps = STOPPED;
 
 private:
