@@ -18,6 +18,7 @@ extern "C"
 #	include <libavutil/imgutils.h>
 #	include <libavutil/opt.h>
 }
+#include <sdkddkver.h>
 #include "DirectXTex.h"
 
 #define ENABLE_10BIT_TARGET_FORMAT 0
@@ -711,6 +712,11 @@ void CVideoRecorder::CFrame::Cancel()
 
 void CVideoRecorder::Process()
 {
+#if WDK_NTDDI_VERSION >= NTDDI_WIN10_RS1
+	if (const HRESULT hr = SetThreadDescription(GetCurrentThread(), L"video recorder worker thread"); FAILED(hr))
+		wcerr << "Fail to set name for video recorder worker thread (hr=" << hr << ")." << endl;
+#endif
+
 	std::unique_lock<decltype(mtx)> lck(mtx);
 	while (!finish)
 	{
