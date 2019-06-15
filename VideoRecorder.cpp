@@ -793,7 +793,7 @@ inline void CVideoRecorder::AdvanceFrame(clock::time_point now, decltype(CFrame:
 	using std::chrono::duration_cast;
 	const auto delta = duration_cast<FrameDuration<(unsigned int)fps>>(now - nextFrame) + FrameDuration<(unsigned int)fps>(1u);
 	nextFrame += duration_cast<clock::duration>(delta);
-#if defined _MSC_VER && _MSC_VER == 1920
+#if defined _MSC_VER && _MSC_VER >= 1920
 	// workaround for VS 2019
 	videoPendingFrames = [](const auto &delta) { return delta.count(); } (delta);
 #else
