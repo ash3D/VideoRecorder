@@ -27,6 +27,12 @@ using std::wclog;
 using std::wcerr;
 using std::endl;
 
+#if __cpp_lib_filesystem >= 201703
+namespace fs = std::filesystem;
+#else
+fs = std::experimental::filesystem;
+#endif
+
 static constexpr auto cache_line =
 #if __cpp_lib_hardware_interference_size || defined _MSC_VER && _MSC_VER >= 1911
 std::hardware_constructive_interference_size;
@@ -370,7 +376,7 @@ void CVideoRecorder::CFrameTask::operator ()(CVideoRecorder &parent)
 
 		try
 		{
-			std::experimental::filesystem::path screenshotPath(srcFrame->screenshotPaths.front());
+			fs::path screenshotPath(srcFrame->screenshotPaths.front());
 			const auto screenshotCodec = GetScreenshotCodec(screenshotPath.extension());
 
 			const Image image =
