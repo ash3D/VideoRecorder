@@ -111,7 +111,7 @@
     <Lib />
     <Lib>
       <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avformat.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2017\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2019_Win10\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -134,7 +134,7 @@
     <Lib />
     <Lib>
       <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avformat.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2017\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2019_Win10\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -161,7 +161,7 @@
     <Lib />
     <Lib>
       <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avformat.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2017\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2019_Win10\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -188,7 +188,7 @@
     <Lib />
     <Lib>
       <AdditionalDependencies>DirectXTex.lib;avcodec.lib;swscale.lib;avformat.lib;avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2017\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>DirectXTex\DirectXTex\Bin\Desktop_2019_Win10\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
